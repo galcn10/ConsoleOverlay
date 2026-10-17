@@ -1,0 +1,12 @@
+Id: ConsoleOverlay_galcn10
+Name: Console Overlay
+Author: galcn10
+Version: 1.0.0
+Module: ConsoleOverlay.dll
+Type: GenericPlugin
+Icon: icon.png
+Links:
+  - Name: Source code
+    Url: https://github.com/galcn10/ConsoleOverlay
+  - Name: Issues
+    Url: https://github.com/galcn10/ConsoleOverlay/issues
