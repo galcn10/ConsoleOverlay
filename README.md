@@ -29,6 +29,10 @@ A console-style overlay menu for [Playnite](https://playnite.link). Press the co
 2. Double-click it (or drag it onto Playnite). Playnite asks to install and restart.
 3. Open **Add-ons → Extensions settings → Console Overlay**.
 
+## Optional: in-menu clip player (mpv)
+
+Clips can play inside the overlay using [mpv](https://mpv.io), a free video player. It is **not included** in the plugin. To enable it, download an mpv build for Windows, and copy `mpv.exe` (with its DLLs, if any) into a folder named `mpv` inside the plugin folder (`%AppData%\Playnite\Extensions\ConsoleOverlay_galcn10\mpv\`). Without it, selecting a clip opens it in the Windows player instead. mpv is GPL licensed and runs as a separate program; see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
+
 ## Quick start
 
 - **Controller**: press the **Guide/PS button** (on by default) to open the menu or return to the game. Long press: power menu. If Steam or another program already uses that button, disable its action there, or turn on the alternative in *Open the menu*: hold **Select + Start** for 1 s (off by default). A notification explains this the first time.

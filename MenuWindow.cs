@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -19,6 +20,7 @@ namespace ConsoleOverlay
         public string Text;
         public bool Danger;
         public string Right;
+        public string Desc;
 
         public MenuEntry(string glyph, string text)
         {
@@ -87,6 +89,15 @@ namespace ConsoleOverlay
         private readonly List<Border> rows = new List<Border>();
         private readonly List<Shapes.Path> icons = new List<Shapes.Path>();
         private readonly List<TextBlock> labels = new List<TextBlock>();
+        private readonly List<TextBlock> descs = new List<TextBlock>();
+        private readonly List<Border> accents = new List<Border>();
+        private List<AchievementItem> achAll;
+        private int achFilter;
+        private readonly List<UIElement> achCache = new List<UIElement>();
+        private int achCacheStart = -1;
+        private int achCacheEnd = -1;
+        private int achCacheSel = -1;
+        private TextBlock achTabs;
         private readonly List<Border> badges = new List<Border>();
         private readonly List<TextBlock> rights = new List<TextBlock>();
         private readonly Grid root;
@@ -117,7 +128,6 @@ namespace ConsoleOverlay
         private int pipRectX, pipRectY, pipRectW, pipRectH;
         private bool canvasHasGame;
         private bool audioUnsupported;
-        private string clipNote = "";
         public Action<bool> ClipAudio;      // true: se está reproduciendo un clip (hay que dejar sonar a Playnite)
         private bool clipAudioOn;
         private string viewCaptionBase = "";
@@ -143,9 +153,12 @@ namespace ConsoleOverlay
         private static readonly HashSet<string> thumbPending = new HashSet<string>();
         private Grid viewer;
         private Image viewImg;
-        private MediaElement viewMedia;
+        private ClipPlayer viewMedia;
         private TextBlock viewCaption;
         private TextBlock viewHint;
+        private Border viewProgressFill;
+        private StackPanel viewNoAudio;
+        private static readonly Dictionary<string, string> durCache = new Dictionary<string, string>();
         private bool viewing;
         private bool mediaFailed;
         private bool mediaPlaying;
@@ -307,6 +320,12 @@ namespace ConsoleOverlay
             revealed = true;
             Left = 0;
             Top = 0;
+            UiFeedback.Play(UiFeedback.Kind.Open);
+            if (!UiFeedback.Animations)
+            {
+                root.Opacity = 1;
+                return;
+            }
             root.BeginAnimation(UIElement.OpacityProperty,
                 new DoubleAnimation(0.25, 1, TimeSpan.FromMilliseconds(170)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
         }
@@ -321,6 +340,11 @@ namespace ConsoleOverlay
                     return;
                 }
                 closing = true;
+                if (!UiFeedback.Animations)
+                {
+                    Close();
+                    return;
+                }
                 DoubleAnimation fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(150))
                 {
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
@@ -357,11 +381,12 @@ namespace ConsoleOverlay
             cancelIndex = newCancelIndex;
             sessionProvider = newSessionProvider;
             rows.Clear();
+            descs.Clear();
+            accents.Clear();
             icons.Clear();
             labels.Clear();
             badges.Clear();
             rights.Clear();
-            shimmerSel = -1;
             selected = Math.Max(0, Math.Min(defaultIndex, entries.Count - 1));
             done = false;
             lastAction = null;
@@ -446,7 +471,7 @@ namespace ConsoleOverlay
                 };
                 string key = b.Wired ? "battery-charging" : (b.Level >= 3 ? "battery-full" : (b.Level == 2 ? "battery-medium" : (b.Level == 1 ? "battery-low" : "battery")));
                 Brush color = b.Wired ? OkBrush : (b.Level <= 1 ? DangerBrush : (b.Level == 2 ? MidBrush : OkBrush));
-                one.Children.Add(SmallIcon("gamepad-2", MutedBrush, 34));
+                one.Children.Add(SmallIcon("gamepad-2", color, 34));
                 if (list.Count > 1)
                 {
                     one.Children.Add(new TextBlock
@@ -454,7 +479,7 @@ namespace ConsoleOverlay
                         Text = b.Index.ToString(),
                         FontSize = 24,
                         FontWeight = FontWeights.Bold,
-                        Foreground = TextBrush,
+                        Foreground = color,
                         VerticalAlignment = VerticalAlignment.Center,
                         Margin = new Thickness(4, 0, 0, 0)
                     });
@@ -945,7 +970,15 @@ namespace ConsoleOverlay
             achMode = true;
             galMode = false;
             CloseViewer();
+            // Conseguidos primero (los más recientes arriba) y después los pendientes, como en las listas de trofeos.
+            list = list.OrderByDescending(a => a.Unlocked).ThenByDescending(a => a.UnlockTime ?? DateTime.MinValue).ToList();
             ach = list;
+            achAll = list;
+            achFilter = 0;
+            achCache.Clear();
+            achCacheStart = -1;
+            achCacheEnd = -1;
+            achCacheSel = -1;
             entries = new List<MenuEntry>();
             for (int i = 0; i < list.Count; i++)
             {
@@ -953,6 +986,8 @@ namespace ConsoleOverlay
             }
             cancelIndex = 0;
             rows.Clear();
+            descs.Clear();
+            accents.Clear();
             icons.Clear();
             labels.Clear();
             badges.Clear();
@@ -1046,9 +1081,19 @@ namespace ConsoleOverlay
                 Margin = new Thickness(0, 0, 4, 10)
             };
             achPanel = new StackPanel();
-            Grid.SetRow(achPos, 0);
             Grid.SetRow(achPanel, 1);
-            right.Children.Add(achPos);
+            achTabs = new TextBlock
+            {
+                FontSize = 24,
+                Margin = new Thickness(4, 0, 0, 10),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Bottom
+            };
+            Grid achHead = new Grid();
+            achHead.Children.Add(achTabs);
+            achHead.Children.Add(achPos);
+            Grid.SetRow(achHead, 0);
+            right.Children.Add(achHead);
             right.Children.Add(achPanel);
             Grid.SetColumn(right, 1);
             body.Children.Add(right);
@@ -1076,6 +1121,8 @@ namespace ConsoleOverlay
             }
             cancelIndex = 0;
             rows.Clear();
+            descs.Clear();
+            accents.Clear();
             icons.Clear();
             labels.Clear();
             badges.Clear();
@@ -1122,8 +1169,7 @@ namespace ConsoleOverlay
                 Foreground = TextBrush,
                 FontWeight = FontWeights.SemiBold
             });
-            galPos = new TextBlock { FontSize = 18, Foreground = MutedBrush, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-            top.Children.Add(galPos);
+            galPos = new TextBlock { FontSize = 22, Foreground = MutedBrush, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             body.Children.Add(top);
 
             galGrid = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
@@ -1140,8 +1186,11 @@ namespace ConsoleOverlay
             canvas.Children.Add(body);
 
             StackPanel hints = BuildHints(buttonStyle, guideEnabled, true);
-            Grid.SetRow(hints, 2);
-            canvas.Children.Add(hints);
+            Grid bottom = new Grid();
+            bottom.Children.Add(hints);
+            bottom.Children.Add(galPos);
+            Grid.SetRow(bottom, 2);
+            canvas.Children.Add(bottom);
             return canvas;
         }
 
@@ -1251,6 +1300,26 @@ namespace ConsoleOverlay
             }
         }
 
+        private static string ClipDuration(string path)
+        {
+            string s;
+            if (durCache.TryGetValue(path, out s))
+            {
+                return s;
+            }
+            TimeSpan? d = Mp4Info.Duration(path);
+            if (d.HasValue)
+            {
+                s = d.Value.TotalHours >= 1 ? d.Value.ToString(@"h\:mm\:ss") : d.Value.ToString(@"m\:ss");
+            }
+            else
+            {
+                s = "";
+            }
+            durCache[path] = s;
+            return s;
+        }
+
         private UIElement BuildTile(CaptureItem item, bool sel)
         {
             Border outer = new Border
@@ -1292,6 +1361,23 @@ namespace ConsoleOverlay
                     Child = SmallIcon("play", Brushes.White, 40)
                 };
                 g.Children.Add(badge);
+            }
+            if (item.IsVideo)
+            {
+                string dur = ClipDuration(item.Path);
+                if (!string.IsNullOrEmpty(dur))
+                {
+                    g.Children.Add(new Border
+                    {
+                        Margin = new Thickness(0, 10, 12, 0),
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        VerticalAlignment = VerticalAlignment.Top,
+                        CornerRadius = new CornerRadius(8),
+                        Background = new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)),
+                        Padding = new Thickness(8, 2, 8, 3),
+                        Child = new TextBlock { Text = dur, FontSize = 16, Foreground = Brushes.White }
+                    });
+                }
             }
             Border cap = new Border
             {
@@ -1349,11 +1435,8 @@ namespace ConsoleOverlay
             viewer = new Grid { Background = new SolidColorBrush(Color.FromArgb(245, 5, 6, 9)), Visibility = Visibility.Collapsed };
             viewImg = new Image { Stretch = Stretch.Uniform, Margin = new Thickness(60, 60, 60, 140) };
             RenderOptions.SetBitmapScalingMode(viewImg, BitmapScalingMode.HighQuality);
-            viewMedia = new MediaElement
+            viewMedia = new ClipPlayer
             {
-                LoadedBehavior = MediaState.Manual,
-                UnloadedBehavior = MediaState.Manual,
-                Stretch = Stretch.Uniform,
                 Margin = new Thickness(60, 60, 60, 140),
                 Visibility = Visibility.Collapsed
             };
@@ -1388,7 +1471,7 @@ namespace ConsoleOverlay
             };
             viewCaption = new TextBlock
             {
-                FontSize = 22,
+                FontSize = 24,
                 Foreground = Brushes.White,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Bottom,
@@ -1396,7 +1479,7 @@ namespace ConsoleOverlay
             };
             viewHint = new TextBlock
             {
-                FontSize = 18,
+                FontSize = 22,
                 Foreground = MutedBrush,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Bottom,
@@ -1406,6 +1489,14 @@ namespace ConsoleOverlay
             viewer.Children.Add(viewMedia);
             viewer.Children.Add(viewCaption);
             viewer.Children.Add(viewHint);
+            Grid track = new Grid { Width = 1760, Height = 4, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 128) };
+            track.Children.Add(new Border { Background = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), CornerRadius = new CornerRadius(2) });
+            viewProgressFill = new Border { Background = Brushes.White, CornerRadius = new CornerRadius(2), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
+            track.Children.Add(viewProgressFill);
+            viewer.Children.Add(track);
+            viewNoAudio = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 16, 40, 0), Visibility = Visibility.Collapsed, ToolTip = Loc.T("Este clip no tiene pista de audio") };
+            viewNoAudio.Children.Add(SmallIcon("volume-x", MutedBrush, 36));
+            viewer.Children.Add(viewNoAudio);
             root.Children.Add(viewer);
         }
 
@@ -1429,7 +1520,10 @@ namespace ConsoleOverlay
             viewCaption.Text = viewCaptionBase;
             mediaFailed = false;
             audioUnsupported = false;
-            clipNote = "";
+            if (viewNoAudio != null)
+            {
+                viewNoAudio.Visibility = Visibility.Collapsed;
+            }
             try
             {
                 viewMedia.Stop();
@@ -1444,7 +1538,8 @@ namespace ConsoleOverlay
                 viewHint.Text = Loc.T("◀ ▶ Retroceder / adelantar 10 s     ▲ ▼ Clip anterior / siguiente     {0} Pausa / Reanudar     {1} Cerrar", acc, back);
                 try
                 {
-                    SetClipAudio(true);
+                    // El audio del clip sale de mpv (otro proceso): Playnite se queda silenciado.
+                    SetClipAudio(false);
                     viewMedia.Source = new Uri(item.Path);
                     viewMedia.Play();
                     mediaPlaying = true;
@@ -1542,7 +1637,12 @@ namespace ConsoleOverlay
                         }
                         else if (desc.IndexOf("no mp4", StringComparison.Ordinal) < 0)
                         {
-                            clipNote = Loc.T("   ·   sin audio");
+                            // Sin pista de audio no hay nada que oír: no se quita el silencio de Playnite (su música).
+                            SetClipAudio(false);
+                            if (viewNoAudio != null)
+                            {
+                                viewNoAudio.Visibility = Visibility.Visible;
+                            }
                             UpdateClipClock();
                         }
                     }));
@@ -1653,7 +1753,10 @@ namespace ConsoleOverlay
             {
                 string cur = viewMedia.Position.ToString(@"mm\:ss");
                 string tot = viewMedia.NaturalDuration.HasTimeSpan ? viewMedia.NaturalDuration.TimeSpan.ToString(@"mm\:ss") : "--:--";
-                viewCaption.Text = viewCaptionBase + "   ·   " + cur + " / " + tot + clipNote;
+                viewCaption.Text = viewCaptionBase + "   ·   " + cur + " / " + tot;
+                double total = viewMedia.NaturalDuration.HasTimeSpan ? viewMedia.NaturalDuration.TimeSpan.TotalSeconds : 0;
+                double ratio = total > 0 ? Math.Max(0, Math.Min(1, viewMedia.Position.TotalSeconds / total)) : 0;
+                viewProgressFill.Width = 1760 * ratio;
             }
             catch
             {
@@ -1717,18 +1820,131 @@ namespace ConsoleOverlay
             {
                 return;
             }
-            achPanel.Children.Clear();
             int n = ach.Count;
             int start = Math.Max(0, Math.Min(selected - AchVisible / 2, n - AchVisible));
             int end = Math.Min(n, start + AchVisible);
-            for (int i = start; i < end; i++)
+            if (start != achCacheStart || end != achCacheEnd || achCache.Count != end - start)
             {
-                achPanel.Children.Add(BuildAchRow(ach[i], i == selected));
+                // Cambia la ventana visible: se reconstruyen las filas (a 6 por página, es barato).
+                achPanel.Children.Clear();
+                achCache.Clear();
+                for (int i = start; i < end; i++)
+                {
+                    UIElement r = BuildAchRow(ach[i], i == selected);
+                    achCache.Add(r);
+                    achPanel.Children.Add(r);
+                }
+                achCacheStart = start;
+                achCacheEnd = end;
+                achCacheSel = selected;
+            }
+            else if (achCacheSel != selected)
+            {
+                // Solo cambia la selección: se reconstruyen las dos filas afectadas, no las seis.
+                int oldSlot = achCacheSel - start;
+                int newSlot = selected - start;
+                if (oldSlot >= 0 && oldSlot < achCache.Count)
+                {
+                    ReplaceAchRow(oldSlot, start + oldSlot, false);
+                }
+                if (newSlot >= 0 && newSlot < achCache.Count)
+                {
+                    ReplaceAchRow(newSlot, start + newSlot, true);
+                }
+                achCacheSel = selected;
             }
             if (achPos != null)
             {
-                achPos.Text = (selected + 1) + " / " + n;
+                achPos.Text = n == 0 ? "0 / 0" : (selected + 1) + " / " + n;
             }
+            RenderAchTabs();
+        }
+
+        private void ReplaceAchRow(int slot, int index, bool sel)
+        {
+            UIElement r = BuildAchRow(ach[index], sel);
+            int pos = achPanel.Children.IndexOf(achCache[slot]);
+            if (pos < 0)
+            {
+                return;
+            }
+            achPanel.Children.RemoveAt(pos);
+            achPanel.Children.Insert(pos, r);
+            achCache[slot] = r;
+        }
+
+        private void RenderAchTabs()
+        {
+            if (achTabs == null || achAll == null)
+            {
+                return;
+            }
+            int got = achAll.Count(a => a.Unlocked);
+            string[] names =
+            {
+                Loc.T("Todos") + " " + achAll.Count,
+                Loc.T("Conseguidos") + " " + got,
+                Loc.T("Pendientes") + " " + (achAll.Count - got)
+            };
+            achTabs.Inlines.Clear();
+            for (int i = 0; i < names.Length; i++)
+            {
+                if (i > 0)
+                {
+                    achTabs.Inlines.Add(new System.Windows.Documents.Run("      "));
+                }
+                bool on = i == achFilter;
+                achTabs.Inlines.Add(new System.Windows.Documents.Run(names[i])
+                {
+                    Foreground = on ? Make("#7FB2FF") : MutedBrush,
+                    FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal
+                });
+            }
+        }
+
+        // Izquierda / derecha en logros: cambia entre Todos, Conseguidos y Pendientes.
+        private void CycleAchFilter(int delta)
+        {
+            achFilter = (achFilter + delta + 3) % 3;
+            ApplyAchFilter();
+        }
+
+        private void ApplyAchFilter()
+        {
+            if (achAll == null)
+            {
+                return;
+            }
+            int f = achFilter;
+            ach = f == 0 ? achAll : achAll.Where(a => f == 1 ? a.Unlocked : !a.Unlocked).ToList();
+            entries = new List<MenuEntry>();
+            for (int i = 0; i < ach.Count; i++)
+            {
+                entries.Add(new MenuEntry(null, null));
+            }
+            selected = 0;
+            achCache.Clear();
+            achCacheStart = -1;
+            achCacheEnd = -1;
+            achCacheSel = -1;
+            if (achPanel != null)
+            {
+                achPanel.Children.Clear();
+            }
+            UpdateSelection();
+        }
+
+        // Convierte el icono a escala de grises (sin efectos de GPU, que aquí no están disponibles).
+        private static ImageSource Grayscale(ImageSource src)
+        {
+            BitmapSource bs = src as BitmapSource;
+            if (bs == null)
+            {
+                return src;
+            }
+            FormatConvertedBitmap g = new FormatConvertedBitmap(bs, PixelFormats.Gray8, null, 0);
+            g.Freeze();
+            return g;
         }
 
         private static ImageSource LoadIcon(string path)
@@ -1785,6 +2001,11 @@ namespace ConsoleOverlay
             if (icon != null)
             {
                 Image im = new Image { Source = icon, Width = 86, Height = 86, Stretch = Stretch.Uniform, Opacity = a.Unlocked ? 1.0 : 0.38 };
+                if (!a.Unlocked)
+                {
+                    // Los iconos de logros pendientes vienen en color: se pasan a gris de verdad.
+                    im.Source = Grayscale(icon);
+                }
                 RenderOptions.SetBitmapScalingMode(im, BitmapScalingMode.HighQuality);
                 iconEl = im;
             }
@@ -1852,17 +2073,18 @@ namespace ConsoleOverlay
             {
                 StackPanel rarity = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
                 bool rare = a.Percent.Value < 10;
+                bool veryRare = a.Percent.Value < 5;
                 rarity.Children.Add(new TextBlock
                 {
                     Text = a.Percent.Value.ToString("0.#") + " %",
                     FontSize = 26,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = rare ? (sel ? Make("#B26A00") : Make("#FFC857")) : main,
+                    Foreground = veryRare ? (sel ? Make("#B26A00") : Make("#FFC857")) : (rare ? (sel ? Make("#3B6AA8") : Make("#9FD3FF")) : main),
                     HorizontalAlignment = HorizontalAlignment.Right
                 });
                 rarity.Children.Add(new TextBlock
                 {
-                    Text = rare ? Loc.T("Raro") : Loc.T("de jugadores"),
+                    Text = veryRare ? Loc.T("Muy raro") : (rare ? Loc.T("Raro") : Loc.T("de jugadores")),
                     FontSize = 15,
                     Foreground = muted,
                     HorizontalAlignment = HorizontalAlignment.Right
@@ -1874,17 +2096,36 @@ namespace ConsoleOverlay
             return b;
         }
 
+        // Color de cada tipo de acción (boceto A2).
+        private static Brush ActionColor(string glyph)
+        {
+            switch (glyph)
+            {
+                case "play": return Make("#3F8CFF");
+                case "camera": return Make("#1FB5A0");
+                case "video": return Make("#8B5CF6");
+                case "images": return Make("#F59E0B");
+                case "trophy": return Make("#EAB308");
+                case "house":
+                case "lock": return Make("#64748B");
+                case "circle-x": return Make("#EF4444");
+                case "power": return Make("#EC4899");
+                default: return null;
+            }
+        }
+
         private UIElement BuildRow(int index)
         {
             MenuEntry e = entries[index];
             Border b = new Border
             {
                 CornerRadius = new CornerRadius(20),
-                Padding = new Thickness(14, 10, 22, 10),
+                Padding = new Thickness(14, 8, 22, 8),
                 Margin = new Thickness(0, 0, 0, 12),
                 BorderThickness = new Thickness(1),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
                 Cursor = Cursors.Hand,
+                Height = 84,
                 RenderTransformOrigin = new Point(0, 0.5),
                 RenderTransform = new TransformGroup { Children = { new ScaleTransform(1, 1), new TranslateTransform(0, 0) } }
             };
@@ -1911,14 +2152,42 @@ namespace ConsoleOverlay
             };
             TextBlock label = new TextBlock
             {
-                Text = e.Text,
-                FontSize = 28,
+                FontSize = 27,
                 VerticalAlignment = VerticalAlignment.Center
             };
+            label.Text = e.Text ?? "";
+            TextBlock descBlock = new TextBlock
+            {
+                Text = e.Desc ?? "",
+                FontSize = 19,
+                Foreground = MutedBrush,
+                Visibility = Visibility.Collapsed,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 2, 0, 0)
+            };
+            descs.Add(string.IsNullOrEmpty(e.Desc) ? null : descBlock);
+            StackPanel textPanel = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            textPanel.Children.Add(label);
+            textPanel.Children.Add(descBlock);
             Grid.SetColumn(badge, 0);
-            Grid.SetColumn(label, 1);
+            Grid.SetColumn(textPanel, 1);
+            Brush accent = ActionColor(e.Glyph);
+            badge.Background = accent ?? BadgeBrush;
+            badge.Tag = accent;
+            // Franja de color en el borde izquierdo de la fila: sigue la curva de las esquinas (como en el boceto)
+            // y solo se ve en la opción activa. Cubre el relleno de la fila con márgenes negativos.
+            Border bar = new Border
+            {
+                CornerRadius = new CornerRadius(20),
+                BorderThickness = new Thickness(6, 0, 0, 0),
+                BorderBrush = accent ?? SelTextBrush,
+                Margin = new Thickness(-15, -9, -23, -9),
+                Opacity = 0,
+                IsHitTestVisible = false
+            };
+            accents.Add(bar);
             g.Children.Add(badge);
-            g.Children.Add(label);
+            g.Children.Add(textPanel);
             if (!string.IsNullOrEmpty(e.Right))
             {
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -1950,7 +2219,10 @@ namespace ConsoleOverlay
             Grid.SetColumnSpan(halo, 3);
             g.Children.Add(halo);
             g.Tag = halo;
-            b.Child = g;
+            Grid wrap = new Grid();
+            wrap.Children.Add(g);
+            wrap.Children.Add(bar);
+            b.Child = wrap;
 
             int captured = index;
             b.MouseLeftButtonUp += (s, ev) =>
@@ -2013,7 +2285,7 @@ namespace ConsoleOverlay
             {
                 Text = key,
                 FontFamily = new FontFamily("Segoe UI Symbol"),
-                FontSize = 18,
+                FontSize = 20,
                 Foreground = Brushes.White,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -2022,7 +2294,7 @@ namespace ConsoleOverlay
             p.Children.Add(new TextBlock
             {
                 Text = text,
-                FontSize = 20,
+                FontSize = 22,
                 Foreground = MutedBrush,
                 Margin = new Thickness(12, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center
@@ -2182,6 +2454,14 @@ namespace ConsoleOverlay
         private void AnimateRowsIn()
         {
             CubicEase ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            if (!UiFeedback.Animations)
+            {
+                foreach (Border r in rows)
+                {
+                    r.Opacity = 1;
+                }
+                return;
+            }
             for (int i = 0; i < rows.Count; i++)
             {
                 Border row = rows[i];
@@ -2201,7 +2481,6 @@ namespace ConsoleOverlay
 
         // Brillo que recorre las letras de la fila seleccionada (como el de Claude mientras trabaja): una pasada suave de izquierda a
         // derecha cada vez que cambia la selección. Solo anima un texto durante menos de un segundo; después no cuesta nada.
-        private int shimmerSel = -1;
 
         private void StartShimmer(TextBlock label)
         {
@@ -2270,38 +2549,22 @@ namespace ConsoleOverlay
             for (int i = 0; i < rows.Count; i++)
             {
                 bool sel = i == selected;
-                SetRowGlow(rows[i], sel);
                 rows[i].Background = sel ? SelBrush : RowBrush;
-                badges[i].Background = sel ? BadgeSelBrush : BadgeBrush;
-                icons[i].Stroke = sel ? SelTextBrush : (entries[i].Danger ? DangerBrush : TextBrush);
-                if (sel)
+                // Las opciones con color conservan su color también cuando están seleccionadas.
+                badges[i].Background = (badges[i].Tag as Brush) ?? (sel ? BadgeSelBrush : BadgeBrush);
+                icons[i].Stroke = badges[i].Tag != null ? Brushes.White : (sel ? SelTextBrush : (entries[i].Danger ? DangerBrush : TextBrush));
+                labels[i].Foreground = sel ? SelTextBrush : TextBrush;
+                if (i < descs.Count && descs[i] != null)
                 {
-                    if (shimmerSel != i)
-                    {
-                        shimmerSel = i;
-                        StartShimmer(labels[i]);
-                    }
+                    descs[i].Visibility = sel ? Visibility.Visible : Visibility.Collapsed;
                 }
-                else
+                if (i < accents.Count && accents[i] != null)
                 {
-                    labels[i].Foreground = TextBrush;
+                    accents[i].Opacity = sel ? 1 : 0;
                 }
                 if (rights[i] != null)
                 {
                     rights[i].Foreground = sel ? SelTextBrush : MutedBrush;
-                }
-
-                TransformGroup tg = rows[i].RenderTransform as TransformGroup;
-                ScaleTransform st = tg != null ? tg.Children[0] as ScaleTransform : null;
-                if (st != null)
-                {
-                    double target = sel ? 1.045 : 1.0;
-                    DoubleAnimation anim = new DoubleAnimation(target, TimeSpan.FromMilliseconds(200))
-                    {
-                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-                    };
-                    st.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
-                    st.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
                 }
             }
         }
@@ -2406,6 +2669,21 @@ namespace ConsoleOverlay
             switch (action)
             {
                 case "up":
+                case "down":
+                case "left":
+                case "right":
+                    UiFeedback.Play(UiFeedback.Kind.Move);
+                    break;
+                case "accept":
+                    UiFeedback.Play(UiFeedback.Kind.Accept);
+                    break;
+                case "cancel":
+                    UiFeedback.Play(UiFeedback.Kind.Back);
+                    break;
+            }
+            switch (action)
+            {
+                case "up":
                     if (galMode) { if (viewing) ViewStep(-1); else MoveGrid(-GalCols); } else { Move(-1); }
                     break;
                 case "down":
@@ -2413,9 +2691,11 @@ namespace ConsoleOverlay
                     break;
                 case "left":
                     if (galMode) { if (viewing) ViewSeek(-1); else MoveGrid(-1); }
+                    else if (achMode) { CycleAchFilter(-1); }
                     break;
                 case "right":
                     if (galMode) { if (viewing) ViewSeek(1); else MoveGrid(1); }
+                    else if (achMode) { CycleAchFilter(1); }
                     break;
                 case "accept":
                     if (galMode)
@@ -2443,6 +2723,10 @@ namespace ConsoleOverlay
 
         private void Move(int delta)
         {
+            if (entries.Count == 0)
+            {
+                return;
+            }
             selected = (selected + delta + entries.Count) % entries.Count;
             UpdateSelection();
         }

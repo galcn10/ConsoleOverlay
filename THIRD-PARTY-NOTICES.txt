@@ -78,3 +78,8 @@ SOFTWARE.
      no contiene código de ellos.
    - Los nombres Xbox, PlayStation y Nintendo se usan solo para describir el estilo de las etiquetas de
      los botones; pertenecen a sus propietarios y no hay vinculación ni respaldo.
+
+mpv (opcional, carpeta mpv\ junto al plugin)
+Reproductor de vídeo de código abierto: https://mpv.io
+Licencia: GPLv2 o posterior (builds de Windows: ver el paquete descargado).
+El plugin lo ejecuta como programa independiente y no lo modifica.

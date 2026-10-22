@@ -21,6 +21,7 @@ namespace ConsoleOverlay
         private string shutdownCommand = "shutdown /s /t 0";
         private bool useGuideButton = true;
         private bool useChordButton = false;
+        private bool useCloseChord = false;
         private bool firstRunDone = false;
         private string buttonStyle = "Auto";
         private string language = "auto";
@@ -37,6 +38,10 @@ namespace ConsoleOverlay
         private bool autoRemoveAdmin = false;
         private string captureFolders = "";
         private bool keepGameInFront = true;
+        private bool animationsEnabled = true;
+        private bool soundsEnabled = true;
+        private int soundVolume = 60;
+        private bool vibrationEnabled = true;
         private bool applying;
 
         public string MenuKey { get => menuKey; set => SetValue(ref menuKey, value); }
@@ -52,6 +57,8 @@ namespace ConsoleOverlay
         public bool UseGuideButton { get => useGuideButton; set => SetValue(ref useGuideButton, value); }
         // Select/Back + Start mantenidos ~1 s: segunda forma de abrir el menú con el mando (sin botón Guía).
         public bool UseChordButton { get => useChordButton; set => SetValue(ref useChordButton, value); }
+        // Start + LB mantenidos 1,5 s: cierra el juego (como Finalizar juego, sin confirmación). Desactivado por defecto.
+        public bool UseCloseChord { get => useCloseChord; set => SetValue(ref useCloseChord, value); }
         // Aviso de "así se abre el menú" ya mostrado.
         public bool FirstRunDone { get => firstRunDone; set => SetValue(ref firstRunDone, value); }
         public string ButtonStyle { get => buttonStyle; set => SetValue(ref buttonStyle, value); }
@@ -97,6 +104,12 @@ namespace ConsoleOverlay
         public bool ShowBattery { get => showBattery; set => SetValue(ref showBattery, value); }
         public bool ShowLivePreview { get => showLivePreview; set => SetValue(ref showLivePreview, value); }
         public bool KeepGameInFront { get => keepGameInFront; set => SetValue(ref keepGameInFront, value); }
+
+        // Movimiento y sonido del menú. Se pueden apagar por separado.
+        public bool AnimationsEnabled { get => animationsEnabled; set => SetValue(ref animationsEnabled, value); }
+        public bool SoundsEnabled { get => soundsEnabled; set => SetValue(ref soundsEnabled, value); }
+        public int SoundVolume { get => soundVolume; set => SetValue(ref soundVolume, value < 0 ? 0 : value > 100 ? 100 : value); }
+        public bool VibrationEnabled { get => vibrationEnabled; set => SetValue(ref vibrationEnabled, value); }
 
         public string CapturePreset
         {
@@ -222,10 +235,15 @@ namespace ConsoleOverlay
             AutoRemoveAdmin = o.AutoRemoveAdmin;
             CaptureFolders = o.CaptureFolders ?? "";
             KeepGameInFront = o.KeepGameInFront;
+            AnimationsEnabled = o.AnimationsEnabled;
+            SoundsEnabled = o.SoundsEnabled;
+            SoundVolume = o.SoundVolume;
+            VibrationEnabled = o.VibrationEnabled;
             RestartCommand = o.RestartCommand;
             ShutdownCommand = o.ShutdownCommand;
             UseGuideButton = o.UseGuideButton;
             UseChordButton = o.UseChordButton;
+            UseCloseChord = o.UseCloseChord;
             FirstRunDone = o.FirstRunDone;
             ButtonStyle = string.IsNullOrEmpty(o.ButtonStyle) ? "Auto" : o.ButtonStyle;
             Language = o.Language;

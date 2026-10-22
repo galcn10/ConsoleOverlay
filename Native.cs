@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -413,7 +413,24 @@ namespace ConsoleOverlay
             }
         }
 
+        // Trae una ventana al frente sin bloquear a quien llama: si el juego (o Playnite) no responde, Windows
+        // puede tardar en aceptar el cambio de foco y eso congelaba el menú. Se espera como mucho 700 ms.
         public static bool BringToFront(IntPtr hwnd, bool topmost)
+        {
+            if (hwnd == IntPtr.Zero)
+            {
+                return false;
+            }
+            bool result = false;
+            System.Threading.Tasks.Task t = System.Threading.Tasks.Task.Run(() => { result = BringToFrontCore(hwnd, topmost); });
+            if (t.Wait(700))
+            {
+                return result;
+            }
+            return IsForeground(hwnd);
+        }
+
+        private static bool BringToFrontCore(IntPtr hwnd, bool topmost)
         {
             if (hwnd == IntPtr.Zero || !IsWindow(hwnd))
             {
@@ -447,10 +464,14 @@ namespace ConsoleOverlay
                     {
                     }
                 }
-                Thread.Sleep(150);
-                if (IsForeground(hwnd))
+                // Se comprueba cada 10 ms en vez de esperar 150 ms fijos: el menú abre en cuanto Windows cede el foco.
+                for (int w = 0; w < 15; w++)
                 {
-                    return true;
+                    Thread.Sleep(10);
+                    if (IsForeground(hwnd))
+                    {
+                        return true;
+                    }
                 }
             }
             return false;

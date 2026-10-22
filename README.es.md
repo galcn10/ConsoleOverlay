@@ -29,6 +29,10 @@ Un menú superpuesto al estilo consola para [Playnite](https://playnite.link). P
 2. Haz doble clic (o arrástralo sobre Playnite). Playnite pedirá instalar y reiniciar.
 3. Abre **Complementos → Ajustes de extensiones → Console Overlay**.
 
+## Opcional: reproductor de clips en el menú (mpv)
+
+Los clips pueden reproducirse dentro del overlay con [mpv](https://mpv.io), un reproductor gratuito. **No va incluido** en el plugin. Para activarlo, descarga mpv para Windows y copia `mpv.exe` (con sus DLL, si las tiene) en una carpeta llamada `mpv` dentro de la carpeta del plugin (`%AppData%\Playnite\Extensions\ConsoleOverlay_galcn10\mpv\`). Sin él, al elegir un clip se abre con el reproductor de Windows. mpv tiene licencia GPL y se ejecuta como programa aparte; ver [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
+
 ## Primeros pasos
 
 - **Mando**: pulsa el **botón Guía/PS** (activado de serie) para abrir el menú o volver al juego. Pulsación larga: menú de energía. Si Steam u otro programa ya usa ese botón, desactiva allí su acción o activa la alternativa en *Abrir el menú*: mantener **Select + Start** 1 s (desactivada de serie). La primera vez, un aviso lo explica.

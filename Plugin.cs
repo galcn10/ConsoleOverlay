@@ -116,6 +116,9 @@ namespace ConsoleOverlay
         public ConsoleOverlayPlugin(IPlayniteAPI api) : base(api)
         {
             settings = new ConsoleOverlaySettings(this);
+            UiFeedback.Log = s => logger.Info(s);
+            UiFeedback.DataDir = GetPluginUserDataPath();
+            ApplyFeedback();
             LoadLocale();
             Properties = new GenericPluginProperties
             {
@@ -224,6 +227,8 @@ namespace ConsoleOverlay
         {
             try
             {
+                UiFeedback.Shutdown();
+                ClipPlayer.ShutdownAll();
                 SuppressPlayniteGuideFocus(false);
                 if (watchdog != null)
                 {
@@ -441,6 +446,15 @@ namespace ConsoleOverlay
                     OnChord(name == "Back", pressed);
                 }
 
+                if (settings.UseCloseChord && (name == "Start" || name == "LeftShoulder"))
+                {
+                    if (name == "LeftShoulder" && pressed)
+                    {
+                        logger.Info("Mando: botón LB pulsado (atajo de cierre)");
+                    }
+                    OnCloseChord(name, pressed);
+                }
+
                 MenuWindow w = activeMenu;
                 if (w != null && pressed)
                 {
@@ -450,6 +464,61 @@ namespace ConsoleOverlay
             catch
             {
             }
+        }
+
+        // Start + LB mantenidos 1,5 s: cierra el juego. Solo con el menú cerrado.
+        private const int CloseHoldMs = 1500;
+        private readonly object closeLock = new object();
+        private bool closeStartDown;
+        private bool closeLbDown;
+        private System.Threading.Timer closeTimer;
+
+        private void OnCloseChord(string name, bool pressed)
+        {
+            lock (closeLock)
+            {
+                if (name == "Start")
+                {
+                    if (pressed)
+                    {
+                        logger.Info("Mando: Start pulsado (atajo de cierre)");
+                    }
+                    closeStartDown = pressed;
+                }
+                else
+                {
+                    closeLbDown = pressed;
+                }
+                bool both = closeStartDown && closeLbDown;
+                if (both && closeTimer == null && activeMenu == null)
+                {
+                    closeTimer = new System.Threading.Timer(_ => CloseHeld(), null, CloseHoldMs, Timeout.Infinite);
+                }
+                else if (!both && closeTimer != null)
+                {
+                    closeTimer.Dispose();
+                    closeTimer = null;
+                }
+            }
+        }
+
+        private void CloseHeld()
+        {
+            lock (closeLock)
+            {
+                if (!(closeStartDown && closeLbDown) || activeMenu != null)
+                {
+                    return;
+                }
+                if (closeTimer != null)
+                {
+                    closeTimer.Dispose();
+                    closeTimer = null;
+                }
+            }
+            logger.Info("Mando: Start + LB mantenidos, cerrando el juego");
+            UiFeedback.Pulse(200, 0.8);
+            Task.Run(() => OnEndHotkey());
         }
 
         // Select/Back + Start mantenidos: abre o cierra el menú (como una pulsación corta del botón Guía).
@@ -694,16 +763,56 @@ namespace ConsoleOverlay
             });
         }
 
-        private static void ApplyPlayniteMute(bool mute)
+        // Cada silenciado nuevo invalida los reintentos de desilenciado pendientes.
+        private static volatile int muteEpoch;
+
+        private static int ApplyPlayniteMute(bool mute, bool fullVolume = false)
         {
             try
             {
-                AudioMuter.SetMute(new List<int> { Process.GetCurrentProcess().Id }, mute);
+                int epoch = mute ? Interlocked.Increment(ref muteEpoch) : muteEpoch;
+                int touched = AudioMuter.SetMute(new List<int> { Process.GetCurrentProcess().Id }, mute, fullVolume);
+                if (!mute && touched == 0)
+                {
+                    // Windows solo ve las sesiones de audio activas: si Playnite no tiene sonido en ese momento,
+                    // la orden no encuentra nada y la sesión se queda silenciada. Se reintenta hasta que aparezca.
+                    RetryUnmute(epoch, fullVolume);
+                }
+                return touched;
             }
             catch (Exception ex)
             {
                 logger.Warn(ex, "No se pudo cambiar el silencio de Playnite");
+                return 0;
             }
+        }
+
+        private static void RetryUnmute(int epoch, bool fullVolume)
+        {
+            Task.Run(() =>
+            {
+                for (int i = 0; i < 40; i++)
+                {
+                    Thread.Sleep(50);
+                    if (epoch != muteEpoch)
+                    {
+                        return;
+                    }
+                    try
+                    {
+                        if (AudioMuter.SetMute(new List<int> { Process.GetCurrentProcess().Id }, false, fullVolume) > 0)
+                        {
+                            logger.Info("Audio de Playnite desilenciado tras " + ((i + 1) * 50) + " ms");
+                            return;
+                        }
+                    }
+                    catch
+                    {
+                        return;
+                    }
+                }
+                logger.Warn("No se encontró la sesión de audio de Playnite para desilenciarla");
+            });
         }
 
         // El botón Guide/PS lo gestiona este plugin. Si Playnite tiene activada "El botón Guide enfoca Playnite", Playnite se trae a sí
@@ -970,11 +1079,17 @@ namespace ConsoleOverlay
         }
 
         // Se llama al guardar los ajustes.
+        private void ApplyFeedback()
+        {
+            UiFeedback.Apply(settings.AnimationsEnabled, settings.SoundsEnabled, settings.SoundVolume, settings.VibrationEnabled);
+        }
+
         public void ApplySettings()
         {
             try
             {
                 LoadLocale();
+                ApplyFeedback();
                 PlayniteApi.MainView.UIDispatcher.Invoke(() => RegisterHotkeys());
             }
             catch (Exception ex)
@@ -1094,10 +1209,13 @@ namespace ConsoleOverlay
 
                 if (!open)
                 {
+                    Stopwatch tMenu = Stopwatch.StartNew();
+                    menuTimer = tMenu;
                     if (!EnterMenu())
                     {
                         return;
                     }
+                    logger.Info("Tiempo: Playnite al frente y juego pausado en " + tMenu.ElapsedMilliseconds + " ms");
                     ShowMenuLoop(longPress ? MenuPage.Power : MenuPage.Main, true);
                 }
                 else if (longPress)
@@ -1321,40 +1439,40 @@ namespace ConsoleOverlay
         {
             List<MenuEntry> items = new List<MenuEntry>();
             List<MenuAction> map = new List<MenuAction>();
-            items.Add(new MenuEntry("play", Loc.T("Volver al juego")));
+            items.Add(new MenuEntry("play", Loc.T("Volver al juego")) { Desc = Loc.T("Cierra el menú y sigue jugando") });
             map.Add(MenuAction.Back);
             if (KeyChord.IsValid(settings.ScreenshotKeys))
             {
-                items.Add(new MenuEntry("camera", Loc.T("Capturar pantalla")));
+                items.Add(new MenuEntry("camera", Loc.T("Capturar pantalla")) { Desc = Loc.T("Guarda una imagen de lo que se ve ahora") });
                 map.Add(MenuAction.Screenshot);
             }
             if (KeyChord.IsValid(settings.ClipKeys))
             {
-                items.Add(new MenuEntry("video", Loc.T("Guardar clip")));
+                items.Add(new MenuEntry("video", Loc.T("Guardar clip")) { Desc = Loc.T("Guarda los últimos segundos de juego") });
                 map.Add(MenuAction.Clip);
             }
             List<CaptureItem> caps = GetCaptures();
             if (caps != null && caps.Count > 0)
             {
-                items.Add(new MenuEntry("images", Loc.T("Capturas y clips")) { Right = caps.Count.ToString() });
+                items.Add(new MenuEntry("images", Loc.T("Capturas y clips")) { Right = caps.Count.ToString(), Desc = Loc.T("Ver, reproducir y revisar lo guardado") });
                 map.Add(MenuAction.Captures);
             }
             else if (KeyChord.IsValid(settings.GalleryKeys))
             {
                 // Sin capturas propias localizadas: se ofrece abrir el visor del programa de capturas.
-                items.Add(new MenuEntry("images", Loc.T("Capturas y clips")) { Right = Loc.T("0 · abrir visor") });
+                items.Add(new MenuEntry("images", Loc.T("Capturas y clips")) { Right = Loc.T("0 · abrir visor"), Desc = Loc.T("Ver, reproducir y revisar lo guardado") });
                 map.Add(MenuAction.Gallery);
             }
             List<AchievementItem> achs = GetAchievements();
             if (achs != null)
             {
                 int got = achs.Count(x => x.Unlocked);
-                items.Add(new MenuEntry("trophy", Loc.T("Logros")) { Right = got + " / " + achs.Count });
+                items.Add(new MenuEntry("trophy", Loc.T("Logros")) { Right = got + " / " + achs.Count, Desc = Loc.T("Logros del juego actual") });
                 map.Add(MenuAction.Achievements);
             }
             if (!noFocus)
             {
-                items.Add(new MenuEntry("house", Loc.T("Ir a Playnite")));
+                items.Add(new MenuEntry("house", Loc.T("Ir a Playnite")) { Desc = Loc.T("Vuelve a la biblioteca de Playnite") });
                 map.Add(MenuAction.Browse);
             }
             else
@@ -1371,7 +1489,7 @@ namespace ConsoleOverlay
                 ? new MenuEntry("circle-x", Loc.T("Finalizar juego")) { Danger = true, Right = Loc.T("pide permiso de Windows") }
                 : new MenuEntry("circle-x", Loc.T("Finalizar juego")) { Danger = true });
             map.Add(MenuAction.EndGame);
-            items.Add(new MenuEntry("power", Loc.T("Energía")));
+            items.Add(new MenuEntry("power", Loc.T("Energía")) { Desc = Loc.T("Suspender, reiniciar o apagar el equipo") });
             map.Add(MenuAction.Power);
 
             string sess = SessionText();
@@ -2101,6 +2219,11 @@ namespace ConsoleOverlay
                                 lastFontInfo = fontInfo;
                                 logger.Info("Tipografía del menú: " + fontInfo);
                             }
+                            Stopwatch tm = menuTimer;
+                            if (tm != null)
+                            {
+                                logger.Info("Tiempo: datos listos, creando ventana del menú a los " + tm.ElapsedMilliseconds + " ms");
+                            }
                             MenuWindow created = new MenuWindow(title, text, items, defaultIndex, cancelIndex, cover, backdrop,
                                                                 session, total, ResolveButtonStyle(), settings.UseGuideButton, accent, themeFont);
                             created.OnChosen = handler;
@@ -2152,6 +2275,7 @@ namespace ConsoleOverlay
                             }
                             activeMenu = created;
                             w = created;
+                            Task.Run(() => UiFeedback.Pulse(90, 0.35));
                             PlayniteApi.MainView.UIDispatcher.BeginInvoke(new Action(() =>
                             {
                                 try
@@ -2446,6 +2570,8 @@ namespace ConsoleOverlay
         // la pantalla completa exclusiva y Playnite no se vería.
         // ------------------------------------------------------------------
 
+        private Stopwatch menuTimer;
+
         private bool EnterMenu()
         {
             Game game;
@@ -2539,15 +2665,13 @@ namespace ConsoleOverlay
             }
 
             // Activar de verdad la ventana de Playnite para que reciba teclado y mando.
-            Thread.Sleep(40);
             ActivatePlayniteWindow();
             RaiseCurtain();
             // Se espera solo lo que haga falta: en cuanto Playnite tiene el foco (suele ser inmediato) se sigue.
-            for (int spin = 0; spin < 14 && !NativeMethods.IsForeground(playniteHwnd); spin++)
+            for (int spin = 0; spin < 60 && !NativeMethods.IsForeground(playniteHwnd); spin++)
             {
-                Thread.Sleep(40);
+                Thread.Sleep(10);
             }
-            Thread.Sleep(60);
             IntPtr fg = NativeMethods.GetForegroundWindow();
             logger.Info("Primer plano tras activar Playnite: " + NativeMethods.Describe(fg) +
                         (fg == playniteHwnd ? " (es la ventana principal de Playnite)" : " (NO es la ventana principal de Playnite)"));

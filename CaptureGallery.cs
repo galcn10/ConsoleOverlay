@@ -501,9 +501,16 @@ namespace ConsoleOverlay
                                 got += r;
                             }
                             List<string> tracks = new List<string>();
+                            Boxes = new List<string>();
                             Walk(moov, 0, got, tracks);
+                            bool audio = tracks.Any(t => t.StartsWith("audio", StringComparison.Ordinal));
                             description = tracks.Count == 0 ? "mp4: sin pistas" : "mp4: " + string.Join(", ", tracks);
-                            return tracks.Any(t => t.StartsWith("audio", StringComparison.Ordinal));
+                            if (!audio)
+                            {
+                                // Diagnóstico: estructura de cajas del moov, para ver por qué no aparece la pista de audio.
+                                description += " | cajas: " + string.Join(" ", Boxes.Take(40));
+                            }
+                            return audio;
                         }
                         pos += size;
                     }
@@ -517,6 +524,110 @@ namespace ConsoleOverlay
             return false;
         }
 
+        // Duración del clip (cabecera mvhd del moov). Null si no se puede leer.
+        public static TimeSpan? Duration(string path)
+        {
+            try
+            {
+                using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    long pos = 0;
+                    byte[] head = new byte[16];
+                    while (pos + 8 <= fs.Length)
+                    {
+                        fs.Seek(pos, SeekOrigin.Begin);
+                        if (fs.Read(head, 0, 8) < 8)
+                        {
+                            break;
+                        }
+                        long size = ReadU32(head, 0);
+                        string type = System.Text.Encoding.ASCII.GetString(head, 4, 4);
+                        long headerLen = 8;
+                        if (size == 1)
+                        {
+                            if (fs.Read(head, 8, 8) < 8)
+                            {
+                                break;
+                            }
+                            size = ((long)ReadU32(head, 8) << 32) | ReadU32(head, 12);
+                            headerLen = 16;
+                        }
+                        else if (size == 0)
+                        {
+                            size = fs.Length - pos;
+                        }
+                        if (size < headerLen)
+                        {
+                            break;
+                        }
+                        if (type == "moov")
+                        {
+                            long len = size - headerLen;
+                            if (len <= 0 || len > 64L * 1024 * 1024)
+                            {
+                                return null;
+                            }
+                            byte[] moov = new byte[len];
+                            fs.Seek(pos + headerLen, SeekOrigin.Begin);
+                            int got = 0;
+                            while (got < len)
+                            {
+                                int r = fs.Read(moov, got, (int)len - got);
+                                if (r <= 0)
+                                {
+                                    break;
+                                }
+                                got += r;
+                            }
+                            return FindMvhd(moov, got);
+                        }
+                        pos += size;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return null;
+        }
+
+        private static TimeSpan? FindMvhd(byte[] b, int end)
+        {
+            int p = 0;
+            while (p + 8 <= end)
+            {
+                long size = ReadU32(b, p);
+                string type = System.Text.Encoding.ASCII.GetString(b, p + 4, 4);
+                if (size < 8 || p + size > end)
+                {
+                    break;
+                }
+                int body = p + 8;
+                if (type == "mvhd" && body + 32 <= end)
+                {
+                    double timescale;
+                    double dur;
+                    if (b[body] == 1)
+                    {
+                        timescale = ReadU32(b, body + 20);
+                        dur = (double)(((long)ReadU32(b, body + 24) << 32) | ReadU32(b, body + 28));
+                    }
+                    else
+                    {
+                        timescale = ReadU32(b, body + 12);
+                        dur = ReadU32(b, body + 16);
+                    }
+                    if (timescale <= 0)
+                    {
+                        return null;
+                    }
+                    return TimeSpan.FromSeconds(dur / timescale);
+                }
+                p += (int)size;
+            }
+            return null;
+        }
+
         private static long ReadU32(byte[] b, int o)
         {
             return ((long)b[o] << 24) | ((long)b[o + 1] << 16) | ((long)b[o + 2] << 8) | b[o + 3];
@@ -528,15 +639,31 @@ namespace ConsoleOverlay
             while (p + 8 <= end)
             {
                 long size = ReadU32(b, p);
+                int hdr = 8;
                 string type = System.Text.Encoding.ASCII.GetString(b, p + 4, 4);
-                if (size < 8 || p + size > end)
+                // Cajas con tamaño de 64 bits (1) o hasta el final (0): antes cortaban el recorrido y se perdía la pista de audio.
+                if (size == 1 && p + 16 <= end)
+                {
+                    size = ((long)ReadU32(b, p + 8) << 32) | ReadU32(b, p + 12);
+                    hdr = 16;
+                }
+                else if (size == 0)
+                {
+                    size = end - p;
+                }
+                if (size < hdr || p + size > end)
                 {
                     break;
                 }
-                int bodyStart = p + 8;
+                int bodyStart = p + hdr;
                 int bodyEnd = (int)(p + size);
+                Boxes.Add(type);
                 if (type == "moov" || type == "trak" || type == "mdia" || type == "minf" || type == "stbl")
                 {
+                    if (type == "trak")
+                    {
+                        handler = null;
+                    }
                     Walk(b, bodyStart, bodyEnd, tracks);
                 }
                 else if (type == "hdlr" && bodyEnd - bodyStart >= 12)
@@ -555,5 +682,8 @@ namespace ConsoleOverlay
 
         [ThreadStatic]
         private static string handler;
+
+        [ThreadStatic]
+        private static List<string> Boxes;
     }
 }

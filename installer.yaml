@@ -1,5 +1,23 @@
 AddonId: ConsoleOverlay_galcn10
 Packages:
+  - Version: 1.2.0
+    RequiredApiVersion: 6.15.0
+    ReleaseDate: 2026-10-22
+    PackageUrl: https://github.com/galcn10/ConsoleOverlay/releases/download/v1.2.0/ConsoleOverlay_galcn10_1_2_0.pext
+    Changelog:
+      - New menu design with colored icons, descriptions and a curved accent bar; lighter on the GPU.
+      - Clips play inside the gallery with the optional mpv player (progress bar, durations, no-audio indicator).
+      - Achievements without duplicates, unlocked first, filters, rarity highlight and locked ones in grayscale.
+      - Faster menu opening; fixes for first-open sound burst and Playnite not responding after repeated calls.
+  - Version: 1.1.0
+    RequiredApiVersion: 6.15.0
+    ReleaseDate: 2026-10-19
+    PackageUrl: https://github.com/galcn10/ConsoleOverlay/releases/download/v1.1.0/ConsoleOverlay_galcn10_1_1_0.pext
+    Changelog:
+      - Menu sounds (synthesized, no files) with volume control.
+      - Controller vibration when the menu opens.
+      - Animations can be turned off.
+      - Optional Start + LB held for 1.5 s to close the game (off by default).
   - Version: 1.0.0
     RequiredApiVersion: 6.15.0
     ReleaseDate: 2026-10-17

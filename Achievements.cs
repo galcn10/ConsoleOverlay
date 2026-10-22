@@ -136,16 +136,20 @@ namespace ConsoleOverlay
                         throw new InvalidOperationException("bind " + rc + ": " + ErrMsg(db));
                     }
 
+                    // La consulta puede devolver la misma definición varias veces (varias filas de Games o de progreso
+                    // para el mismo juego). Se deduplica por nombre API y se queda la versión conseguida, si la hay.
+                    Dictionary<string, int> seen = new Dictionary<string, int>();
                     while ((rc = Native.sqlite3_step(stmt)) == 100)
                     {
                         string display = Text(stmt, 0);
                         string api = Text(stmt, 1);
+                        string dedupeKey = string.IsNullOrEmpty(api) ? display : api;
                         string unlockedIcon = Text(stmt, 3);
                         string lockedIcon = Text(stmt, 4);
                         bool unlocked = Native.sqlite3_column_int64(stmt, 7) != 0;
                         string icon = ResolveIcon(dataDir, unlocked ? unlockedIcon : (lockedIcon ?? unlockedIcon))
                                       ?? ResolveIcon(dataDir, unlockedIcon);
-                        result.Add(new AchievementItem
+                        AchievementItem item = new AchievementItem
                         {
                             Name = string.IsNullOrWhiteSpace(display) ? api : display,
                             Description = Text(stmt, 2),
@@ -156,7 +160,18 @@ namespace ConsoleOverlay
                             Percent = Native.sqlite3_column_type(stmt, 6) == 5 ? (double?)null : Native.sqlite3_column_double(stmt, 6),
                             ProgressNum = extra ? NullableInt(stmt, 9) : null,
                             ProgressDenom = extra ? NullableInt(stmt, 10) : null
-                        });
+                        };
+                        int existing;
+                        if (seen.TryGetValue(dedupeKey ?? "", out existing))
+                        {
+                            if (unlocked && !result[existing].Unlocked)
+                            {
+                                result[existing] = item;
+                            }
+                            continue;
+                        }
+                        seen[dedupeKey ?? ""] = result.Count;
+                        result.Add(item);
                     }
                     if (rc != 101)
                     {

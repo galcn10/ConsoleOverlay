@@ -27,12 +27,22 @@
             <CheckBox Margin="0,0,0,7" Content="Batería del mando" IsChecked="{Binding ShowBattery}" />
             <CheckBox Margin="0,0,0,7" Content="Miniatura del juego" IsChecked="{Binding ShowLivePreview}"
                       ToolTip="En directo si el juego no se pausa; si está pausado, el último fotograma. Algunos juegos en pantalla completa exclusiva pueden verse en negro." />
+            <CheckBox Margin="0,0,0,7" Content="Animaciones del menú" IsChecked="{Binding AnimationsEnabled}"
+                      ToolTip="Fundidos, filas que entran en cadena y brillo al cambiar de fila. Desactívalas si el equipo va justo." />
+            <CheckBox Margin="0,0,0,7" Content="Sonidos del menú" IsChecked="{Binding SoundsEnabled}" />
+            <StackPanel Orientation="Horizontal" Margin="18,0,0,7">
+                <TextBlock Text="Volumen de los sonidos:" VerticalAlignment="Center" Width="172" />
+                <Slider Width="160" Minimum="0" Maximum="100" Value="{Binding SoundVolume}" IsEnabled="{Binding SoundsEnabled}" />
+            </StackPanel>
+            <CheckBox Margin="0,0,0,7" Content="Vibración del mando al abrir el menú" IsChecked="{Binding VibrationEnabled}" />
 
             <TextBlock Text="Abrir el menú" FontWeight="Bold" FontSize="14" Margin="0,18,0,6" />
             <CheckBox Margin="0,0,0,7" Content="Botón Guía del mando (PS / Xbox)" IsChecked="{Binding UseGuideButton}"
                       ToolTip="Pulsación corta: abrir el menú o volver al juego. Pulsación larga: menú de energía. Si otro programa (Steam, GameHQ...) usa ese botón, desactiva allí su acción." />
             <CheckBox Margin="0,0,0,7" Content="Select + Start (mantener 1 s)" IsChecked="{Binding UseChordButton}"
                       ToolTip="Alternativa para mandos sin botón Guía o si otro programa lo ocupa." />
+            <CheckBox Margin="0,0,0,7" Content="Cerrar el juego: Start + LB (mantener 1,5 s)" IsChecked="{Binding UseCloseChord}"
+                      ToolTip="Cierra el juego directamente, sin confirmación. Vibra al cerrar. Solo funciona con el menú cerrado." />
 
             <Expander Margin="0,10,0,0" Header="Atajos de teclado">
                 <StackPanel Margin="18,8,0,0">
