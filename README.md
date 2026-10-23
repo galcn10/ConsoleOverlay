@@ -4,7 +4,11 @@ A console-style overlay menu for [Playnite](https://playnite.link). Press the co
 
 > Español: [README.es.md](README.es.md)
 
-*Screenshots: add them to `docs/screenshots/` and link them here.*
+![Main menu](docs/screenshots/menu.png)
+![Captures gallery](docs/screenshots/captures.png)
+![Captures gallery_2](docs/screenshots/captures_2.png)
+![Achievements](docs/screenshots/achievements.png)
+![Power menu](docs/screenshots/power.png)
 
 ## Features
 
