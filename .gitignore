@@ -5,3 +5,4 @@ obj/
 *.pext
 *_backup*
 mpv/
+docs/*.mp4
