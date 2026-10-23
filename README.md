@@ -1,3 +1,6 @@
+
+
+
 # Console Overlay for Playnite
 
 A console-style overlay menu for [Playnite](https://playnite.link). Press the controller's Guide/PS button (or a keyboard shortcut) while you play: the game is paused, a menu appears over it, and you can go back to the game, take a screenshot, check your achievements, leave to Playnite, close the game or power off the PC — all from the couch, with a controller.
@@ -9,6 +12,8 @@ A console-style overlay menu for [Playnite](https://playnite.link). Press the co
 ![Captures gallery_2](docs/screenshots/captures_2.png)
 ![Achievements](docs/screenshots/achievements.png)
 ![Power menu](docs/screenshots/power.png)
+
+https://github.com/user-attachments/assets/9ddb563b-5aff-49cf-886e-8047f501044a
 
 ## Features
 
