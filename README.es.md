@@ -7,7 +7,7 @@ Un menú superpuesto al estilo consola para [Playnite](https://playnite.link). P
 ![Menú principal](docs/screenshots/menu.png)
 ![Tarjeta de música](docs/screenshots/music.png)
 ![Logros](docs/screenshots/achievements_2.png)
-![Cambiar a](docs/screenshots/chngeto.png)
+![Cambiar a](docs/screenshots/changeto.png)
 ![Galería de capturas](docs/screenshots/captures.png)
 ![Galería de capturas 2](docs/screenshots/captures_2.png)
 ![Menú de energía](docs/screenshots/power.png)
