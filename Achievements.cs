@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace ConsoleOverlay
@@ -17,6 +18,8 @@ namespace ConsoleOverlay
         public double? Percent;      // % global de jugadores que lo tienen
         public int? ProgressNum;
         public int? ProgressDenom;
+        public string Api;           // nombre API (clave del logro en la base de datos)
+        public int? Trophy;          // tipo de trofeo definido por el plugin: 0 bronce, 1 plata, 2 oro, 3 platino (null = no hay dato)
     }
 
     // ----------------------------------------------------------------------
@@ -151,6 +154,7 @@ namespace ConsoleOverlay
                                       ?? ResolveIcon(dataDir, unlockedIcon);
                         AchievementItem item = new AchievementItem
                         {
+                            Api = api,
                             Name = string.IsNullOrWhiteSpace(display) ? api : display,
                             Description = Text(stmt, 2),
                             Unlocked = unlocked,
@@ -176,6 +180,16 @@ namespace ConsoleOverlay
                     if (rc != 101)
                     {
                         throw new InvalidOperationException("step " + rc + ": " + ErrMsg(db));
+                    }
+                    Native.sqlite3_finalize(stmt);
+                    stmt = IntPtr.Zero;
+                    try
+                    {
+                        ReadTrophies(db, gameId, result, log);
+                    }
+                    catch (Exception ex)
+                    {
+                        log("Logros: no se pudo leer el tipo de trofeo (" + ex.GetType().Name + ": " + ex.Message + ")");
                     }
                 }
                 finally
@@ -203,6 +217,149 @@ namespace ConsoleOverlay
                 log("Logros: no se pudieron leer (" + ex.GetType().Name + ": " + ex.Message + ")");
                 return null;
             }
+        }
+
+        // Columnas de una tabla (PRAGMA table_info).
+        private static List<string> Columns(IntPtr db, string table)
+        {
+            List<string> cols = new List<string>();
+            IntPtr st = IntPtr.Zero;
+            try
+            {
+                if (Native.sqlite3_prepare16_v2(db, "PRAGMA table_info(" + table + ");", -1, out st, IntPtr.Zero) != 0)
+                {
+                    return cols;
+                }
+                while (Native.sqlite3_step(st) == 100)
+                {
+                    string n = Text(st, 1);
+                    if (!string.IsNullOrEmpty(n))
+                    {
+                        cols.Add(n);
+                    }
+                }
+            }
+            finally
+            {
+                if (st != IntPtr.Zero)
+                {
+                    Native.sqlite3_finalize(st);
+                }
+            }
+            return cols;
+        }
+
+        // Tipo de trofeo, como lo calcula el plugin Playnite Achievements: primero el que haya puesto el usuario
+        // (tabla AchievementOverrides), después el del proveedor (AchievementDefinitions.TrophyType: platinum/gold/silver/bronze)
+        // y por último su nivel de rareza (columna Rarity: Common/Uncommon/Rare/UltraRare). Si no hay nada, el % de jugadores.
+        private static void ReadTrophies(IntPtr db, Guid gameId, List<AchievementItem> items, Action<string> log)
+        {
+            List<string> cols = Columns(db, "AchievementDefinitions");
+            bool hasTroph = cols.Any(c => c.Equals("TrophyType", StringComparison.OrdinalIgnoreCase));
+            bool hasRar = cols.Any(c => c.Equals("Rarity", StringComparison.OrdinalIgnoreCase));
+            bool hasOv = Columns(db, "AchievementOverrides").Any(c => c.Equals("TrophyType", StringComparison.OrdinalIgnoreCase));
+            log("Logros: trofeo - TrophyType=" + hasTroph + ", Rarity=" + hasRar + ", override=" + hasOv);
+            if (!hasTroph && !hasRar && !hasOv)
+            {
+                log("Logros: no hay datos de tipo de trofeo; se usa el % de jugadores. Columnas: " + string.Join(", ", cols));
+                return;
+            }
+            IntPtr st = IntPtr.Zero;
+            try
+            {
+                string sql = "SELECT ad.ApiName, " + (hasTroph ? "ad.TrophyType" : "NULL") + ", " + (hasRar ? "ad.Rarity" : "NULL") + ", " +
+                             (hasOv ? "ao.TrophyType" : "NULL") + " FROM AchievementDefinitions ad JOIN Games g ON ad.GameId = g.Id " +
+                             (hasOv ? "LEFT JOIN AchievementOverrides ao ON ao.PlayniteGameId = g.PlayniteGameId AND ao.ApiName = ad.ApiName " : "") +
+                             "WHERE g.PlayniteGameId = ?1 COLLATE NOCASE;";
+                if (Native.sqlite3_prepare16_v2(db, sql, -1, out st, IntPtr.Zero) != 0)
+                {
+                    log("Logros: no se pudo leer el tipo de trofeo: " + ErrMsg(db));
+                    return;
+                }
+                Native.sqlite3_bind_text16(st, 1, gameId.ToString(), -1, new IntPtr(-1));
+                Dictionary<string, int?> map = new Dictionary<string, int?>();
+                HashSet<string> seenValues = new HashSet<string>();
+                while (Native.sqlite3_step(st) == 100)
+                {
+                    string api = Text(st, 0) ?? "";
+                    string def = Text(st, 1);
+                    string rar = Text(st, 2);
+                    string ov = Text(st, 3);
+                    if (seenValues.Count < 8)
+                    {
+                        seenValues.Add((ov ?? "-") + "/" + (def ?? "-") + "/" + (rar ?? "-"));
+                    }
+                    map[api] = ParseTrophy(ov) ?? ParseTrophy(def) ?? ParseTrophy(rar);
+                }
+                log("Logros: trofeos (override/proveedor/rareza) vistos = " + string.Join(" | ", seenValues));
+                int known = 0;
+                foreach (AchievementItem it in items)
+                {
+                    int? t;
+                    if (it.Api != null && map.TryGetValue(it.Api, out t) && t.HasValue)
+                    {
+                        it.Trophy = t;
+                        known++;
+                    }
+                }
+                log("Logros: " + known + " de " + items.Count + " con tipo de trofeo del plugin");
+            }
+            finally
+            {
+                if (st != IntPtr.Zero)
+                {
+                    Native.sqlite3_finalize(st);
+                }
+            }
+        }
+
+        // Texto o número del plugin a 0 bronce, 1 plata, 2 oro, 3 platino. Null si no se reconoce.
+        private static int? ParseTrophy(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+            string v = raw.Trim().ToLowerInvariant();
+            if (v.Contains("platin"))
+            {
+                return 3;
+            }
+            if (v.Contains("gold") || v.Contains("oro"))
+            {
+                return 2;
+            }
+            if (v.Contains("silver") || v.Contains("plata"))
+            {
+                return 1;
+            }
+            if (v.Contains("bronze") || v.Contains("bronce"))
+            {
+                return 0;
+            }
+            // Niveles de rareza: común, poco común, raro, ultra raro.
+            if (v.Contains("ultra"))
+            {
+                return 3;
+            }
+            if (v.Contains("uncommon") || v.Contains("poco"))
+            {
+                return 1;
+            }
+            if (v.Contains("common") || v.Contains("com"))
+            {
+                return 0;
+            }
+            if (v.Contains("rare") || v.Contains("raro"))
+            {
+                return 2;
+            }
+            int n;
+            if (int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) && n >= 0 && n <= 3)
+            {
+                return n;
+            }
+            return null;
         }
 
         private static string ResolveIcon(string dataDir, string stored)

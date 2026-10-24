@@ -15,6 +15,7 @@ Un menú superpuesto al estilo consola para [Playnite](https://playnite.link). P
 - **Sigue tu tema de Playnite**: colores y tipografía se leen del tema que uses (o de la portada del juego), y los iconos de los botones siguen el tipo de mando configurado en el modo fullscreen de Playnite.
 - **Funciona con juegos ejecutados como administrador**: abre el menú sin pausar y puede quitar la marca «ejecutar como administrador» si se lo pides.
 - **Programas de capturas**: pulsa el atajo de tu programa (GameHQ, NVIDIA App, Steam, Xbox Game Bar...) y localiza los archivos en las carpetas habituales.
+- **Tarjeta de música**: muestra lo que suena (Spotify, SimpMusic, YouTube Music en el navegador, VLC...) con los controles multimedia de Windows y permite pausar y cambiar de canción desde el mando. No necesita cuenta ni red.
 - **Fluido**: sin animaciones continuas; los efectos solo actúan sobre la fila seleccionada y durante las transiciones.
 - **9 idiomas**: inglés, español, francés, alemán, portugués, italiano, ruso, chino, japonés (el idioma de Playnite por defecto, y si no, el de Windows).
 
@@ -54,6 +55,7 @@ Como controla otros programas, esto es exactamente lo que hace:
 | Finalizar el juego | Cierre normal y, si no responde, forzado. En juegos elevados pide permiso de administrador a Windows (UAC) | «Finalizar juego» |
 | Comandos de energía | `cmd /c <comando>` con los comandos de los ajustes (por defecto `shutdown /r /t 0`, `shutdown /s /t 0`) y la llamada estándar de suspensión | Reiniciar, apagar, suspender |
 | Quitar «ejecutar como administrador» | Edita la marca de compatibilidad del *usuario actual* en `HKCU\...\AppCompatFlags\Layers` del exe de ese juego, solo si lo aceptas o activas la opción | Poder pausar el juego |
+| Leer el reproductor | Controles multimedia de Windows (leer lo que suena; enviar pausa, siguiente, anterior) | Mostrar la tarjeta de música y controlarla con el mando |
 | Leer logros | Acceso de solo lectura a la base de datos del plugin *Playnite Achievements* | Mostrar logros en el menú |
 | Ajuste de Playnite | Mientras hay un juego en marcha, «El botón Guide enfoca Playnite» queda limitado a «solo cuando no hay juego» y se restaura al terminar | Si no, Playnite saltaría al pulsar el botón |
 

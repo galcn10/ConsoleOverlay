@@ -239,6 +239,13 @@ namespace ConsoleOverlay
             return "0x" + h.ToInt64().ToString("X") + " clase=" + cls + " titulo=\"" + title + "\" pid=" + pid;
         }
 
+        [DllImport("user32.dll")] private static extern bool IsHungAppWindow(IntPtr hWnd);
+
+        public static bool IsHung(IntPtr hwnd)
+        {
+            try { return hwnd != IntPtr.Zero && IsHungAppWindow(hwnd); } catch { return false; }
+        }
+
         private static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
         private const uint SWP_NOACTIVATE = 0x0010;
 
@@ -742,6 +749,86 @@ namespace ConsoleOverlay
                 if (enumerator != null) Marshal.ReleaseComObject(enumerator);
             }
             return touched;
+        }
+
+        // Sube o baja el volumen de las sesiones de audio de esos procesos (delta entre -1 y 1). Devuelve el volumen resultante o -1 si no hay sesión.
+        public static float AdjustVolume(IEnumerable<int> pids, float delta)
+        {
+            float result = -1;
+            HashSet<int> wanted = new HashSet<int>(pids);
+            if (wanted.Count == 0)
+            {
+                return result;
+            }
+            IMMDeviceEnumerator enumerator = null;
+            IMMDevice device = null;
+            IAudioSessionManager2 manager = null;
+            IAudioSessionEnumerator sessions = null;
+            try
+            {
+                Type enumType = Type.GetTypeFromCLSID(new Guid("BCDE0395-E52F-467C-8E3D-C4579291692E"));
+                enumerator = (IMMDeviceEnumerator)Activator.CreateInstance(enumType);
+                Marshal.ThrowExceptionForHR(enumerator.GetDefaultAudioEndpoint(0, 1, out device));
+                Guid iid = typeof(IAudioSessionManager2).GUID;
+                object o;
+                Marshal.ThrowExceptionForHR(device.Activate(ref iid, 23, IntPtr.Zero, out o));
+                manager = (IAudioSessionManager2)o;
+                Marshal.ThrowExceptionForHR(manager.GetSessionEnumerator(out sessions));
+                int count;
+                Marshal.ThrowExceptionForHR(sessions.GetCount(out count));
+                Guid ctx = Guid.Empty;
+                for (int i = 0; i < count; i++)
+                {
+                    object ctlObj = null;
+                    try
+                    {
+                        Marshal.ThrowExceptionForHR(sessions.GetSession(i, out ctlObj));
+                        IAudioSessionControl2 ctl2 = ctlObj as IAudioSessionControl2;
+                        if (ctl2 == null)
+                        {
+                            continue;
+                        }
+                        uint spid;
+                        ctl2.GetProcessId(out spid);
+                        if (!wanted.Contains((int)spid))
+                        {
+                            continue;
+                        }
+                        ISimpleAudioVolume vol = ctlObj as ISimpleAudioVolume;
+                        if (vol != null)
+                        {
+                            float cur;
+                            vol.GetMasterVolume(out cur);
+                            float next = Math.Max(0f, Math.Min(1f, cur + delta));
+                            vol.SetMasterVolume(next, ref ctx);
+                            result = next;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Warn(ex, "No se pudo cambiar el volumen de una sesión de audio");
+                    }
+                    finally
+                    {
+                        if (ctlObj != null)
+                        {
+                            Marshal.ReleaseComObject(ctlObj);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "No se pudo cambiar el volumen del reproductor");
+            }
+            finally
+            {
+                if (sessions != null) Marshal.ReleaseComObject(sessions);
+                if (manager != null) Marshal.ReleaseComObject(manager);
+                if (device != null) Marshal.ReleaseComObject(device);
+                if (enumerator != null) Marshal.ReleaseComObject(enumerator);
+            }
+            return result;
         }
 
         [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]

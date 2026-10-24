@@ -59,7 +59,10 @@ namespace ConsoleOverlay
             Gallery,
             Achievements,
             Captures,
-            RemoveAdmin
+            RemoveAdmin,
+            OpenMusic,
+            SwitchGame,
+            Music
         }
 
         private static readonly string[] LauncherNames =
@@ -83,6 +86,11 @@ namespace ConsoleOverlay
         private DateTime gameStartUtc = DateTime.UtcNow;
         private List<int> pausedPids = new List<int>();
         private IntPtr gameHwnd = IntPtr.Zero;
+        private List<MenuRecent> pendingRecents;
+        private string switchTargetId;
+        private volatile bool switching;
+        private readonly ManualResetEventSlim stoppedSignal = new ManualResetEventSlim(false);
+        private readonly Dictionary<string, ImageSource> recentImages = new Dictionary<string, ImageSource>();
         private IntPtr playniteHwnd = IntPtr.Zero;
         private int foregroundPid;
         private System.Threading.Timer watchdog;
@@ -166,8 +174,14 @@ namespace ConsoleOverlay
         {
             try
             {
-                logger.Info("Console Overlay 1.0.0. Datos en: " + GetPluginUserDataPath());
+                logger.Info("Console Overlay " + GetType().Assembly.GetName().Version.ToString(3) + ". Datos en: " + GetPluginUserDataPath());
                 RecoverSuspended();
+                if (settings.ShowMusic)
+                {
+                    // Se prepara ya, en segundo plano, para que la música esté lista cuando se abra el menú.
+                    lastMusicPlayer = settings.MusicPlayer;
+                    MusicWatcher.Instance.Start(settings.MusicPlayer);
+                }
                 watchdog = new System.Threading.Timer(_ => WatchdogTick(), null, 5000, 5000);
 
                 if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Desktop &&
@@ -306,6 +320,10 @@ namespace ConsoleOverlay
         {
             gameStartedAt = DateTime.UtcNow;
             browsing = false;
+            if (settings.ShowMusic && autoMusicApps == null)
+            {
+                Task.Run(() => { try { GetMusicApps(); WarmMusicIcons(); } catch { } }); // detección de reproductores e iconos en segundo plano
+            }
             SuppressPlayniteGuideFocus(true);
             List<int> leftover;
             lock (gate)
@@ -417,6 +435,10 @@ namespace ConsoleOverlay
             catch (Exception ex)
             {
                 logger.Error(ex, "Error en OnGameStopped");
+            }
+            finally
+            {
+                stoppedSignal.Set();
             }
         }
 
@@ -948,7 +970,7 @@ namespace ConsoleOverlay
                     // Esperar a que el telón se haya pintado de verdad antes de traer Playnite.
                     bool painted = false;
                     w.ContentRendered += (s2, e2) => painted = true;
-                    DateTime limit = DateTime.UtcNow.AddMilliseconds(400);
+                    DateTime limit = DateTime.UtcNow.AddMilliseconds(120); // en el log casi siempre agotaba los 400 ms sin recibir el aviso: se acorta
                     while (!painted && DateTime.UtcNow < limit)
                     {
                         Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Render, new Action(() => { }));
@@ -1151,11 +1173,21 @@ namespace ConsoleOverlay
 
         private void HandleGesture(bool longPress)
         {
+            if (switching)
+            {
+                return;
+            }
             MenuWindow openMenu = activeMenu;
             if (openMenu != null)
             {
                 if (!longPress)
                 {
+                    // Un segundo Guide casi a la vez que se abre el menú suele ser un rebote: se ignora.
+                    if ((DateTime.UtcNow - openMenu.ShownAtUtc).TotalMilliseconds < 1000)
+                    {
+                        logger.Info("Botón Guide ignorado: el menú acaba de abrirse.");
+                        return;
+                    }
                     openMenu.Dispatcher.BeginInvoke(new Action(() => openMenu.Cancel()));
                 }
                 return;
@@ -1209,6 +1241,24 @@ namespace ConsoleOverlay
 
                 if (!open)
                 {
+                    Game cg;
+                    lock (gate)
+                    {
+                        cg = currentGame;
+                    }
+                    // Mientras el juego carga (aún sin ventana visible) el menú no se abre: pausar entonces estropea el arranque.
+                    if ((DateTime.UtcNow - gameStartedAt).TotalSeconds < 90 && FindMainWindow(FindGamePids()) == IntPtr.Zero)
+                    {
+                        logger.Info("Menú no abierto: el juego aún se está abriendo.");
+                        return;
+                    }
+                    string skip = SkipOverlayReason(cg);
+                    if (skip != null)
+                    {
+                        // El juego (p. ej. un emulador con su propio menú) se queda con el botón: el plugin no hace nada.
+                        logger.Info("Menú no abierto: " + skip + ".");
+                        return;
+                    }
                     Stopwatch tMenu = Stopwatch.StartNew();
                     menuTimer = tMenu;
                     if (!EnterMenu())
@@ -1367,6 +1417,56 @@ namespace ConsoleOverlay
                         page = MenuPage.Main;
                         break;
 
+                    case MenuAction.SwitchGame:
+                        {
+                            Game target = null;
+                            Guid tid;
+                            if (Guid.TryParse(switchTargetId, out tid))
+                            {
+                                target = PlayniteApi.Database.Games.Get(tid);
+                            }
+                            if (target == null)
+                            {
+                                page = MenuPage.Main;
+                                break;
+                            }
+                            if (Confirm(Loc.T("¿Cerrar el juego y abrir {0}? Se perderá el progreso que no esté guardado.", target.Name)))
+                            {
+                                SwitchGameCore(target);
+                                return;
+                            }
+                            page = MenuPage.Main;
+                            break;
+                        }
+
+                    case MenuAction.OpenMusic:
+                        {
+                            List<KeyValuePair<string, string>> apps = GetMusicApps();
+                            int pick = 0;
+                            if (apps.Count > 1)
+                            {
+                                List<MenuEntry> list = apps.Select(a =>
+                                {
+                                    MenuEntry me = new MenuEntry("music", a.Key) { OpenOnly = true };
+                                    ApplyMusicIcon(me, a.Value);
+                                    return me;
+                                }).ToList();
+                                list.Add(new MenuEntry("arrow-left", Loc.T("Atrás")));
+                                pick = Choose(Loc.T("¿Qué reproductor quieres abrir?"), Loc.T("Música"), list, 0, list.Count - 1, hasGame);
+                            }
+                            if (pick < 0 || pick >= apps.Count)
+                            {
+                                page = MenuPage.Main;
+                                break;
+                            }
+                            // El menú se queda abierto: vuelve de inmediato a la pantalla principal mientras el reproductor
+                            // arranca minimizado; cuando hay música, la fila cambia en el sitio.
+                            LaunchMusicApp(apps[pick].Value);
+                            WatchMusicOpen(apps[pick].Value);
+                            page = MenuPage.Main;
+                            break;
+                        }
+
                     case MenuAction.Achievements:
                         ShowAchievementsPage();
                         page = MenuPage.Main;
@@ -1435,6 +1535,1172 @@ namespace ConsoleOverlay
             }
         }
 
+        // Los 3 últimos juegos jugados (sin el actual) para el panel «Cambiar a».
+        private List<MenuRecent> GetRecents()
+        {
+            try
+            {
+                Game cur;
+                lock (gate)
+                {
+                    cur = currentGame;
+                }
+                if (cur == null)
+                {
+                    return null;
+                }
+                List<Game> games = PlayniteApi.Database.Games
+                    .Where(g => g.Id != cur.Id && g.IsInstalled && !g.Hidden && g.LastActivity.HasValue)
+                    .OrderByDescending(g => g.LastActivity.Value)
+                    .Take(3)
+                    .ToList();
+                List<MenuRecent> res = new List<MenuRecent>();
+                foreach (Game g in games)
+                {
+                    ImageSource img = null;
+                    string key = g.CoverImage ?? g.Icon;
+                    if (!string.IsNullOrEmpty(key) && !recentImages.TryGetValue(key, out img))
+                    {
+                        img = LoadImage(key, 240, 0);
+                        if (recentImages.Count > 12)
+                        {
+                            recentImages.Clear();
+                        }
+                        recentImages[key] = img;
+                    }
+                    res.Add(new MenuRecent { Id = g.Id.ToString(), Name = g.Name, Image = img, When = WhenText(g.LastActivity.Value) });
+                }
+                return res.Count > 0 ? res : null;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "No se pudieron leer los juegos recientes");
+                return null;
+            }
+        }
+
+        private static string WhenText(DateTime dt)
+        {
+            int d = (int)(DateTime.Now.Date - dt.Date).TotalDays;
+            if (d <= 0)
+            {
+                return Loc.T("Hoy");
+            }
+            return d == 1 ? Loc.T("Ayer") : Loc.T("Hace {0} días", d);
+        }
+
+        // Cierra el juego actual y abre otro detrás de una pantalla de transición, para que no se vea nada intermedio.
+        private void SwitchGameCore(Game target)
+        {
+            switching = true;
+            SwitchSplash splash = null;
+            try
+            {
+                logger.Info("Cambiar de juego a: " + target.Name);
+                ImageSource cov = LoadImage(target.CoverImage, 0, 720) ?? LoadImage(target.Icon, 0, 720);
+                PlayniteApi.MainView.UIDispatcher.Invoke(() =>
+                {
+                    FontFamily font = null;
+                    try
+                    {
+                        string fi;
+                        font = Palette.ThemeFont(out fi);
+                    }
+                    catch
+                    {
+                    }
+                    splash = new SwitchSplash(target.Name, cov, font);
+                    splash.Show();
+                });
+                Thread.Sleep(150);
+
+                stoppedSignal.Reset();
+                CloseMenuWindow(false);
+                EndGameCore();
+                // Se espera a que Playnite confirme que el juego anterior terminó, para no mezclar su estado con el del nuevo.
+                if (!stoppedSignal.Wait(8000))
+                {
+                    logger.Warn("Cambiar de juego: no llegó el aviso de parada; se continúa igualmente.");
+                }
+                Thread.Sleep(300);
+
+                PlayniteApi.MainView.UIDispatcher.Invoke(() => PlayniteApi.StartGame(target.Id));
+
+                // Se mantiene la pantalla hasta que el juego nuevo tiene ventana visible (con un máximo de 30 s).
+                Stopwatch sw = Stopwatch.StartNew();
+                bool ready = false;
+                while (sw.ElapsedMilliseconds < 30000)
+                {
+                    Game cur;
+                    lock (gate)
+                    {
+                        cur = currentGame;
+                    }
+                    if (cur != null && cur.Id == target.Id)
+                    {
+                        IntPtr h = FindMainWindow(FindGamePids());
+                        if (h != IntPtr.Zero && NativeMethods.IsWindow(h) && NativeMethods.IsWindowVisible(h) && !NativeMethods.IsMinimized(h))
+                        {
+                            ready = true;
+                            break;
+                        }
+                    }
+                    Thread.Sleep(250);
+                }
+                logger.Info("Cambiar de juego: ventana lista = " + ready + " tras " + sw.ElapsedMilliseconds + " ms");
+                Thread.Sleep(ready ? 1200 : 0);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "Error al cambiar de juego");
+                try
+                {
+                    Notify(Loc.T("No se pudo cambiar de juego."));
+                    EnsurePlayniteVisible(true);
+                }
+                catch
+                {
+                }
+            }
+            finally
+            {
+                try
+                {
+                    SwitchSplash sp = splash;
+                    if (sp != null)
+                    {
+                        PlayniteApi.MainView.UIDispatcher.Invoke(() => sp.FadeAndClose());
+                    }
+                }
+                catch
+                {
+                }
+                switching = false;
+            }
+        }
+
+        // Reproductores de la lista de ajustes (Nombre|ruta). Sin lista, si Spotify está instalado se ofrece Spotify.
+        private List<KeyValuePair<string, string>> GetMusicApps()
+        {
+            List<KeyValuePair<string, string>> res = new List<KeyValuePair<string, string>>();
+            foreach (string raw in (settings.MusicApps ?? "").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = raw.Trim();
+                int bar = line.IndexOf('|');
+                string name = bar > 0 ? line.Substring(0, bar).Trim() : "";
+                string target = bar > 0 ? line.Substring(bar + 1).Trim().Trim('"') : line.Trim('"');
+                if (target.Length == 0)
+                {
+                    continue;
+                }
+                if (name.Length == 0)
+                {
+                    name = target.StartsWith("spotify:", StringComparison.OrdinalIgnoreCase) ? "Spotify" : Path.GetFileNameWithoutExtension(target);
+                }
+                res.Add(new KeyValuePair<string, string>(name, target));
+            }
+            {
+                if (autoMusicApps == null)
+                {
+                    autoMusicApps = DetectMusicApps();
+                }
+                // Los de ajustes van primero; los detectados se añaden sin repetir nombre ni destino.
+                foreach (KeyValuePair<string, string> au in autoMusicApps)
+                {
+                    if (!res.Any(r => r.Key.Equals(au.Key, StringComparison.OrdinalIgnoreCase) || r.Value.Equals(au.Value, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        res.Add(au);
+                    }
+                }
+                foreach (string raw in (settings.LearnedMusicApps ?? "").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    int bar = raw.IndexOf('|');
+                    if (bar <= 0)
+                    {
+                        continue;
+                    }
+                    string nm = raw.Substring(0, bar).Trim();
+                    string tg = raw.Substring(bar + 1).Trim();
+                    if (nm.Length > 0 && tg.Length > 0 && !res.Any(r => r.Key.Equals(nm, StringComparison.OrdinalIgnoreCase) || r.Value.Equals(tg, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        res.Add(new KeyValuePair<string, string>(nm, tg));
+                    }
+                }
+            }
+            return res;
+        }
+
+        private List<KeyValuePair<string, string>> autoMusicApps;
+
+        // Sin lista en ajustes: se buscan los reproductores conocidos instalados (Spotify y los de la lista de programas de Windows).
+        // Destino de un reproductor -> dónde sacar su icono (p. ej. Spotify de la Tienda, que se abre con «spotify:»).
+        private static readonly Dictionary<string, string> MusicIconSource = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        private static List<KeyValuePair<string, string>> DetectMusicApps()
+        {
+            List<KeyValuePair<string, string>> res = new List<KeyValuePair<string, string>>();
+            try
+            {
+                string spotifyExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Spotify", "Spotify.exe");
+                if (File.Exists(spotifyExe))
+                {
+                    res.Add(new KeyValuePair<string, string>("Spotify", spotifyExe));
+                }
+                else
+                {
+                    using (Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey("spotify"))
+                    {
+                        if (k != null)
+                        {
+                            res.Add(new KeyValuePair<string, string>("Spotify", "spotify:"));
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+            string[] known = { "SimpMusic", "foobar2000", "AIMP", "MusicBee", "iTunes", "Apple Music", "Winamp", "Deezer", "TIDAL", "Amazon Music", "YouTube Music", "Pear Desktop", "Cider", "Qobuz", "Plexamp", "Pandora", "SoundCloud", "Audacious", "Strawberry", "MediaMonkey" };
+            string[] hives = { @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" };
+            foreach (Microsoft.Win32.RegistryKey root in new[] { Microsoft.Win32.Registry.LocalMachine, Microsoft.Win32.Registry.CurrentUser })
+            {
+                foreach (string hive in hives)
+                {
+                    try
+                    {
+                        using (Microsoft.Win32.RegistryKey u = root.OpenSubKey(hive))
+                        {
+                            if (u == null)
+                            {
+                                continue;
+                            }
+                            foreach (string sub in u.GetSubKeyNames())
+                            {
+                                using (Microsoft.Win32.RegistryKey a = u.OpenSubKey(sub))
+                                {
+                                    string name = a == null ? null : a.GetValue("DisplayName") as string;
+                                    if (string.IsNullOrEmpty(name))
+                                    {
+                                        continue;
+                                    }
+                                    string label = known.FirstOrDefault(kn => name.IndexOf(kn, StringComparison.OrdinalIgnoreCase) >= 0);
+                                    if (label == null || res.Any(r => r.Key.Equals(label, StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        continue;
+                                    }
+                                    string exe = ExeOfUninstallEntry(a);
+                                    if (exe != null)
+                                    {
+                                        res.Add(new KeyValuePair<string, string>(label == "VLC media player" ? "VLC" : label, exe));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            // Apps de la Tienda / MSIX (WindowsApps no deja lanzar el .exe por su ruta): se abren por su identificador de aplicación.
+            try
+            {
+                {
+                    Dictionary<string, string> startApps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    ProcessStartInfo ps = new ProcessStartInfo("powershell.exe",
+                        "-NoProfile -NonInteractive -Command \"Get-StartApps | ForEach-Object { $_.Name + '|' + $_.AppID }\"")
+                    {
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        CreateNoWindow = true
+                    };
+                    using (Process pr = Process.Start(ps))
+                    {
+                        string outp = pr.StandardOutput.ReadToEnd();
+                        pr.WaitForExit(8000);
+                        foreach (string line in outp.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            int bar = line.IndexOf('|');
+                            if (bar <= 0)
+                            {
+                                continue;
+                            }
+                            string nm = line.Substring(0, bar).Trim();
+                            string id = line.Substring(bar + 1).Trim();
+                            startApps[nm] = id;
+                            string flatNm = nm.Replace(" ", "");
+                            string label = known.FirstOrDefault(kn => flatNm.StartsWith(kn.Replace(" ", ""), StringComparison.OrdinalIgnoreCase) &&
+                                                                     flatNm.IndexOf("uninstall", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                                                     flatNm.IndexOf("desinstal", StringComparison.OrdinalIgnoreCase) < 0);
+                            if (label != null || flatNm.IndexOf("simp", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                logger.Info("Música: app de Inicio '" + nm + "' (" + id + ")" + (label != null ? " -> " + label : " sin coincidir"));
+                            }
+                            if (label == null || id.IndexOf('!') < 0 || res.Any(r => r.Key.Equals(label == "VLC media player" ? "VLC" : label, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                continue;
+                            }
+                            res.Add(new KeyValuePair<string, string>(label == "VLC media player" ? "VLC" : label, "shell:AppsFolder\\" + id));
+                        }
+                        logger.Info("Música: apps de Inicio leídas = " + startApps.Count);
+                        // Reproductores que no se abren desde el menú Inicio (p. ej. Spotify con «spotify:»): el icono sale de su app de Inicio.
+                        foreach (KeyValuePair<string, string> r in res.ToList())
+                        {
+                            string sid;
+                            if (!File.Exists(r.Value) && !r.Value.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) && startApps.TryGetValue(r.Key, out sid))
+                            {
+                                MusicIconSource[r.Value] = "shell:AppsFolder\\" + sid;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "Música: no se pudieron leer las apps de Inicio");
+            }
+            // Segunda vía para las apps de la Tienda, sin PowerShell: se consultan los paquetes instalados del usuario.
+            try
+            {
+                Windows.Management.Deployment.PackageManager pm = new Windows.Management.Deployment.PackageManager();
+                int pkgCount = 0;
+                string spotifyAumid = null;
+                foreach (Windows.ApplicationModel.Package pkg in pm.FindPackagesForUser(""))
+                {
+                    pkgCount++;
+                    string pname = pkg.Id.Name ?? "";
+                    if (spotifyAumid == null && pname.IndexOf("Spotify", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        try
+                        {
+                            foreach (Windows.ApplicationModel.Core.AppListEntry se in pkg.GetAppListEntries())
+                            {
+                                spotifyAumid = se.AppUserModelId;
+                                break;
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+                    string pkgLabel = null;
+                    foreach (string kn in known)
+                    {
+                        string lab = kn == "VLC media player" ? "VLC" : kn;
+                        if (res.Any(r => r.Key.Equals(lab, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            continue;
+                        }
+                        if (pname.IndexOf(kn.Replace(" ", ""), StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            pkgLabel = lab;
+                            break;
+                        }
+                    }
+                    if (pkgLabel == null)
+                    {
+                        continue;
+                    }
+                    foreach (Windows.ApplicationModel.Core.AppListEntry entry in pkg.GetAppListEntries())
+                    {
+                        string aumid = entry.AppUserModelId;
+                        logger.Info("Música: paquete '" + pname + "' -> " + aumid);
+                        if (!string.IsNullOrEmpty(aumid))
+                        {
+                            res.Add(new KeyValuePair<string, string>(pkgLabel, "shell:AppsFolder\\" + aumid));
+                            break;
+                        }
+                    }
+                }
+                logger.Info("Música: paquetes del usuario revisados = " + pkgCount);
+                // Spotify de la Tienda se abre con «spotify:»; su icono sale de su paquete.
+                if (spotifyAumid != null)
+                {
+                    foreach (KeyValuePair<string, string> r in res)
+                    {
+                        if (r.Value.StartsWith("spotify:", StringComparison.OrdinalIgnoreCase) && !MusicIconSource.ContainsKey(r.Value))
+                        {
+                            MusicIconSource[r.Value] = "shell:AppsFolder\\" + spotifyAumid;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "Música: no se pudieron revisar los paquetes instalados");
+            }
+            // Respaldo: accesos directos del menú Inicio y carpetas habituales (instaladores que no registran el icono).
+            try
+            {
+                List<string> lnks = new List<string>();
+                foreach (Environment.SpecialFolder sf in new[] { Environment.SpecialFolder.CommonPrograms, Environment.SpecialFolder.Programs })
+                {
+                    string dir = Environment.GetFolderPath(sf);
+                    if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                    {
+                        lnks.AddRange(Directory.GetFiles(dir, "*.lnk", SearchOption.AllDirectories));
+                    }
+                }
+                List<string> roots = new List<string>
+                {
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs"),
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
+                };
+                foreach (string kn in known)
+                {
+                    string label = kn == "VLC media player" ? "VLC" : kn;
+                    if (res.Any(r => r.Key.Equals(label, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
+                    string flat = kn.Replace(" ", "");
+                    string exe = null;
+                    foreach (string l in lnks)
+                    {
+                        string fn = Path.GetFileNameWithoutExtension(l).Replace(" ", "");
+                        if (fn.IndexOf(flat, StringComparison.OrdinalIgnoreCase) >= 0 && fn.IndexOf("uninstall", StringComparison.OrdinalIgnoreCase) < 0)
+                        {
+                            exe = ShortcutTarget(l);
+                            if (exe != null)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    if (exe == null)
+                    {
+                        // Alias de ejecución de las apps MSIX (se pueden lanzar por su nombre aunque WindowsApps no deje abrir el .exe).
+                        try
+                        {
+                            string aliasDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps");
+                            if (Directory.Exists(aliasDir))
+                            {
+                                exe = Directory.GetFiles(aliasDir, "*.exe")
+                                    .FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).StartsWith(flat, StringComparison.OrdinalIgnoreCase));
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+                    if (exe == null)
+                    {
+                        foreach (string r in roots)
+                        {
+                            try
+                            {
+                                string d = Path.Combine(r, kn);
+                                if (!Directory.Exists(d))
+                                {
+                                    d = Path.Combine(r, flat);
+                                }
+                                if (!Directory.Exists(d))
+                                {
+                                    continue;
+                                }
+                                string[] exes = Directory.GetFiles(d, "*.exe", SearchOption.AllDirectories)
+                                    .Where(e => !Path.GetFileName(e).StartsWith("unins", StringComparison.OrdinalIgnoreCase) &&
+                                                !Path.GetFileName(e).StartsWith("update", StringComparison.OrdinalIgnoreCase))
+                                    .ToArray();
+                                exe = exes.FirstOrDefault(e => Path.GetFileNameWithoutExtension(e).Replace(" ", "").Equals(flat, StringComparison.OrdinalIgnoreCase)) ?? exes.FirstOrDefault();
+                                if (exe != null)
+                                {
+                                    break;
+                                }
+                            }
+                            catch
+                            {
+                            }
+                        }
+                    }
+                    if (exe != null)
+                    {
+                        res.Add(new KeyValuePair<string, string>(label, exe));
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return res;
+        }
+
+        // Destino de un acceso directo (.lnk) si es un .exe existente.
+        private static string ShortcutTarget(string lnk)
+        {
+            try
+            {
+                Type t = Type.GetTypeFromProgID("WScript.Shell");
+                object sh = Activator.CreateInstance(t);
+                object sc = t.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, sh, new object[] { lnk });
+                string target = sc.GetType().InvokeMember("TargetPath", System.Reflection.BindingFlags.GetProperty, null, sc, null) as string;
+                return !string.IsNullOrEmpty(target) && target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(target) ? target : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // Ejecutable de un programa instalado: el icono que registra (DisplayIcon) o, si no, el .exe con su nombre en la carpeta de instalación.
+        private static string ExeOfUninstallEntry(Microsoft.Win32.RegistryKey a)
+        {
+            string icon = a.GetValue("DisplayIcon") as string;
+            if (!string.IsNullOrEmpty(icon))
+            {
+                int comma = icon.LastIndexOf(',');
+                if (comma > 0)
+                {
+                    icon = icon.Substring(0, comma);
+                }
+                icon = icon.Trim().Trim('"');
+                if (icon.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(icon))
+                {
+                    return icon;
+                }
+            }
+            string dir = a.GetValue("InstallLocation") as string;
+            string name = a.GetValue("DisplayName") as string;
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+            {
+                string[] exes = Directory.GetFiles(dir, "*.exe", SearchOption.TopDirectoryOnly);
+                string best = exes.FirstOrDefault(e => Path.GetFileNameWithoutExtension(e).Equals(name, StringComparison.OrdinalIgnoreCase))
+                              ?? exes.FirstOrDefault(e => !Path.GetFileName(e).StartsWith("unins", StringComparison.OrdinalIgnoreCase));
+                return best;
+            }
+            return null;
+        }
+
+        // ¿Sigue abierta la aplicación que publicó la sesión de música? Se compara con el nombre de los procesos.
+        private static void MusicOpenTexts(List<KeyValuePair<string, string>> apps, out string desc, out string right)
+        {
+            right = apps.Count == 1 ? apps[0].Key : null;
+            desc = apps.Count == 1 ? Loc.T("Abre {0} y vuelve al juego", apps[0].Key) : Loc.T("Elige un reproductor y vuelve al juego");
+        }
+
+        private static string SourceProcessName(string appId)
+        {
+            string s = appId ?? "";
+            int bang = s.LastIndexOf('!');
+            if (bang >= 0 && bang < s.Length - 1)
+            {
+                s = s.Substring(bang + 1);
+            }
+            if (s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                s = s.Substring(0, s.Length - 4);
+            }
+            int us = s.IndexOf('_');
+            if (us > 0)
+            {
+                s = s.Substring(0, us);
+            }
+            return s;
+        }
+
+        private volatile bool musicOpening;
+
+        // Abre el único reproductor conocido sin cerrar ni redibujar el menú; cuando hay música cambia la fila en el sitio.
+        // Devuelve false si hay que elegir entre varios reproductores (lo resuelve el bucle del menú).
+        private bool OpenMusicInline()
+        {
+            List<KeyValuePair<string, string>> apps = GetMusicApps();
+            if (apps.Count != 1)
+            {
+                return false;
+            }
+            if (musicOpening)
+            {
+                return true;
+            }
+            LaunchMusicApp(apps[0].Value);
+            WatchMusicOpen(apps[0].Value);
+            return true;
+        }
+
+        // Espera (hasta 8 s) a que el reproductor recién abierto publique su sesión y cambia la fila de música en el sitio.
+        // Nombre del proceso que se espera al abrir un reproductor (para minimizar su ventana).
+        private static string MusicProcessFor(string target)
+        {
+            if (string.IsNullOrEmpty(target))
+            {
+                return "";
+            }
+            if (target.StartsWith("spotify:", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Spotify";
+            }
+            const string AppsPrefix = "shell:AppsFolder\\";
+            if (target.StartsWith(AppsPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return SourceProcessName(target.Substring(AppsPrefix.Length));
+            }
+            try { return Path.GetFileNameWithoutExtension(target); } catch { return ""; }
+        }
+
+        // Las ventanas del reproductor recién abierto se minimizan sin quitar el foco, para que no tapen el menú ni el juego.
+        private void MinimizeMusicWindows(string procName)
+        {
+            if (procName.Length < 4 || BrowserNames.Any(b => procName.StartsWith(b, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+            HashSet<int> skip = new HashSet<int>();
+            try { foreach (int gp in FindGamePids()) { skip.Add(gp); } } catch { }
+            skip.Add(Process.GetCurrentProcess().Id);
+            HashSet<uint> pids = new HashSet<uint>();
+            foreach (Process p in Process.GetProcesses())
+            {
+                try
+                {
+                    if (p.ProcessName.StartsWith(procName, StringComparison.OrdinalIgnoreCase) && !skip.Contains(p.Id))
+                    {
+                        pids.Add((uint)p.Id);
+                    }
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    p.Dispose();
+                }
+            }
+            if (pids.Count == 0)
+            {
+                return;
+            }
+            // Todas las ventanas visibles de esos procesos (las apps de Java o Chromium no siempre tienen «ventana principal»).
+            NativeMethods.EnumWindows((h, l) =>
+            {
+                try
+                {
+                    uint wp;
+                    NativeMethods.GetWindowThreadProcessId(h, out wp);
+                    if (pids.Contains(wp) && NativeMethods.IsWindowVisible(h) && !NativeMethods.IsIconic(h))
+                    {
+                        NativeMethods.ShowWindow(h, 7); // SW_SHOWMINNOACTIVE
+                    }
+                }
+                catch
+                {
+                }
+                return true;
+            }, IntPtr.Zero);
+        }
+
+        private static int SuspendedThreads(int pid)
+        {
+            int n = 0;
+            try
+            {
+                using (Process p = Process.GetProcessById(pid))
+                {
+                    foreach (ProcessThread t in p.Threads)
+                    {
+                        try
+                        {
+                            if (t.ThreadState == System.Diagnostics.ThreadState.Wait && t.WaitReason == ThreadWaitReason.Suspended)
+                            {
+                                n++;
+                            }
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return n;
+        }
+
+        private void WatchMusicOpen(string target = null)
+        {
+            string procName = MusicProcessFor(target);
+            if (procName.Length >= 4)
+            {
+                Task.Run(() =>
+                {
+                    // Solo mientras el menú siga abierto y unos segundos: antes seguía 20 s tocando ventanas aunque
+                    // ya se hubiera vuelto al juego, lo que podía interferir con la ventana del juego.
+                    int idle = 0;
+                    for (int i = 0; i < 30 && idle < 3; i++)
+                    {
+                        Thread.Sleep(400);
+                        if (activeMenu == null)
+                        {
+                            idle++;
+                            continue;
+                        }
+                        idle = 0;
+                        try { MinimizeMusicWindows(procName); } catch { }
+                    }
+                });
+            }
+            if (musicOpening)
+            {
+                return;
+            }
+            musicOpening = true;
+            Task.Run(() =>
+            {
+                try
+                {
+                    Stopwatch wait = Stopwatch.StartNew();
+                    while (wait.ElapsedMilliseconds < 8000)
+                    {
+                        MusicInfo mi = MusicWatcher.Instance.Current;
+                        if (mi.HasSession && SourceRunning(mi.SourceId))
+                        {
+                            break;
+                        }
+                        Thread.Sleep(250);
+                    }
+                    // Dos intentos: si la pantalla principal aún se estaba dibujando, el segundo la encuentra lista.
+                    for (int i = 0; i < 2; i++)
+                    {
+                        PlayniteApi.MainView.UIDispatcher.BeginInvoke(new Action(() =>
+                        {
+                            MenuWindow m = activeMenu;
+                            MusicInfo mi = MusicWatcher.Instance.Current;
+                            if (m != null && mi.HasSession && SourceRunning(mi.SourceId))
+                            {
+                                MenuEntry probe = new MenuEntry("music", "");
+                                ApplyLiveIcon(probe, mi);
+                                m.SetMusicRow(true, Loc.T("Música"), Loc.T("{A} pausa · {L1}/{R1} canción · {X} cerrar"), null, probe.Image, probe.AccentColor, true);
+                                m.Activate();
+                            }
+                        }));
+                        Thread.Sleep(700);
+                    }
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    musicOpening = false;
+                }
+            });
+        }
+
+        // Icono de la app que está sonando (por nombre, por paquete de la Tienda o por su proceso en marcha).
+        private void ApplyLiveIcon(MenuEntry live, MusicInfo mi)
+        {
+        KeyValuePair<string, string> src = GetMusicApps().FirstOrDefault(a => !string.IsNullOrEmpty(mi.Source) &&
+            (a.Key.IndexOf(mi.Source, StringComparison.OrdinalIgnoreCase) >= 0 || mi.Source.IndexOf(a.Key, StringComparison.OrdinalIgnoreCase) >= 0));
+        if (src.Value != null)
+        {
+            ApplyMusicIcon(live, src.Value);
+        }
+        if (live.Image == null)
+        {
+            // Sin coincidencia por nombre: se usa directamente la app que está sonando.
+            string sid = mi.SourceId ?? "";
+            if (sid.IndexOf('!') >= 0)
+            {
+                ApplyMusicIcon(live, "shell:AppsFolder\\" + sid);
+            }
+            else
+            {
+                string pn = SourceProcessName(sid);
+                try
+                {
+                    foreach (System.Diagnostics.Process pr in System.Diagnostics.Process.GetProcessesByName(pn))
+                    {
+                        string path = null;
+                        try { path = pr.MainModule.FileName; } catch { }
+                        if (path != null)
+                        {
+                            ApplyMusicIcon(live, path);
+                            if (live.Image != null)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    if (live.Image == null && pn.StartsWith("spotify", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string sp = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Spotify", "Spotify.exe");
+                        ApplyMusicIcon(live, sp);
+                        if (live.Image == null)
+                        {
+                            foreach (KeyValuePair<string, string> k in MusicIconSource)
+                            {
+                                if (k.Key.StartsWith("spotify", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    ApplyMusicIcon(live, k.Key);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+        }
+
+        // Icono y color del reproductor para su fila (se calculan una vez por reproductor).
+        private readonly Dictionary<string, KeyValuePair<ImageSource, Color?>> musicIcons = new Dictionary<string, KeyValuePair<ImageSource, Color?>>();
+
+        // Prepara los iconos de los reproductores en segundo plano para que el selector abra al instante.
+        private void WarmMusicIcons()
+        {
+            foreach (KeyValuePair<string, string> a in GetMusicApps())
+            {
+                ApplyMusicIcon(new MenuEntry("music", ""), a.Value);
+            }
+        }
+
+        private void ApplyMusicIcon(MenuEntry e, string target)
+        {
+            try
+            {
+                KeyValuePair<ImageSource, Color?> v;
+                bool have;
+                lock (musicIcons)
+                {
+                    have = musicIcons.TryGetValue(target, out v);
+                }
+                if (!have)
+                {
+                    Color? dom = null;
+                    string iconSrc;
+                    string eff = MusicIconSource.TryGetValue(target, out iconSrc) ? iconSrc : target;
+                    ImageSource img = null;
+                    const string AppsPrefix = "shell:AppsFolder\\";
+                    if (File.Exists(eff))
+                    {
+                        img = AppIcon.Load(eff, out dom);
+                    }
+                    else if (eff.StartsWith(AppsPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // App de la Tienda: el logo se pide a su paquete (el icono del Explorador salía como documento en blanco).
+                        img = AppIcon.LoadBytes(PackagedLogo(eff.Substring(AppsPrefix.Length)), out dom);
+                    }
+                    v = new KeyValuePair<ImageSource, Color?>(img, dom);
+                    if (img != null)
+                    {
+                        lock (musicIcons)
+                        {
+                            musicIcons[target] = v;
+                        }
+                    }
+                }
+                e.Image = v.Key;
+                e.AccentColor = v.Value;
+            }
+            catch
+            {
+            }
+        }
+
+        // Logo (PNG) de una app de la Tienda a partir de su identificador de aplicación.
+        private static byte[] PackagedLogo(string aumid)
+        {
+            try
+            {
+                Windows.Management.Deployment.PackageManager pm = new Windows.Management.Deployment.PackageManager();
+                int bang = aumid.IndexOf('!');
+                // Con el nombre de familia se pide solo ese paquete (recorrer los 120 instalados tardaba segundos).
+                IEnumerable<Windows.ApplicationModel.Package> pkgs = bang > 0 ? pm.FindPackagesForUser("", aumid.Substring(0, bang)) : pm.FindPackagesForUser("");
+                foreach (Windows.ApplicationModel.Package pkg in pkgs)
+                {
+                    foreach (Windows.ApplicationModel.Core.AppListEntry entry in pkg.GetAppListEntries())
+                    {
+                        if (!string.Equals(entry.AppUserModelId, aumid, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        Windows.Storage.Streams.RandomAccessStreamReference logo = entry.DisplayInfo.GetLogo(new Windows.Foundation.Size(128, 128));
+                        using (Windows.Storage.Streams.IRandomAccessStreamWithContentType rs = logo.OpenReadAsync().AsTask().GetAwaiter().GetResult())
+                        using (Stream st = rs.AsStreamForRead())
+                        using (MemoryStream ms = new MemoryStream())
+                        {
+                            st.CopyTo(ms);
+                            return ms.ToArray();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Info("Música: sin logo para " + aumid + " (" + ex.GetType().Name + ")");
+            }
+            return null;
+        }
+
+        // Si la app de la Tienda que suena no está en la lista, se recuerda para poder abrirla otro día.
+        private void LearnMusicApp(MusicInfo mi)
+        {
+            try
+            {
+                string id = mi.SourceId ?? "";
+                if (string.IsNullOrWhiteSpace(mi.Source))
+                {
+                    return;
+                }
+                string target = null;
+                if (id.IndexOf('!') >= 0 && !id.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    target = "shell:AppsFolder\\" + id; // app de la Tienda
+                }
+                else if (id.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Programa de escritorio: se toma la ruta de su proceso en marcha (nunca navegadores ni Spotify, que ya tiene su vía).
+                    string pn = SourceProcessName(id);
+                    if (pn.Length < 4 || BrowserNames.Any(b => pn.StartsWith(b, StringComparison.OrdinalIgnoreCase)) ||
+                        pn.StartsWith("spotify", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                    foreach (Process p in Process.GetProcessesByName(pn))
+                    {
+                        try
+                        {
+                            string path = p.MainModule.FileName;
+                            if (File.Exists(path))
+                            {
+                                target = path;
+                                break;
+                            }
+                        }
+                        catch
+                        {
+                        }
+                        finally
+                        {
+                            p.Dispose();
+                        }
+                    }
+                }
+                if (target == null)
+                {
+                    return;
+                }
+                if (GetMusicApps().Any(a => a.Value.Equals(target, StringComparison.OrdinalIgnoreCase) ||
+                                            a.Key.Equals(mi.Source, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return;
+                }
+                settings.LearnedMusicApps = (settings.LearnedMusicApps ?? "").TrimEnd() + "\n" + mi.Source.Trim() + "|" + target;
+                SavePluginSettings(settings);
+                logger.Info("Música: reproductor recordado " + mi.Source + " (" + target + ")");
+            }
+            catch
+            {
+            }
+        }
+
+        // Volumen del reproductor en el mezclador de Windows (el control de medios no tiene volumen).
+        private void ChangeMusicVolume(MenuWindow w, float delta)
+        {
+            MusicInfo mi = MusicWatcher.Instance.Current;
+            string name = SourceProcessName(mi.SourceId);
+            if (name.Length < 4)
+            {
+                return;
+            }
+            Task.Run(() =>
+            {
+                try
+                {
+                    List<int> pids = new List<int>();
+                    foreach (Process p in Process.GetProcesses())
+                    {
+                        try
+                        {
+                            if (p.ProcessName.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+                            {
+                                pids.Add(p.Id);
+                            }
+                        }
+                        catch
+                        {
+                        }
+                        finally
+                        {
+                            p.Dispose();
+                        }
+                    }
+                    float v = AudioMuter.AdjustVolume(pids, delta);
+                    if (v >= 0)
+                    {
+                        w.Dispatcher.BeginInvoke(new Action(() => w.ShowMusicVolume(v)));
+                    }
+                    else
+                    {
+                        logger.Info("Música: no hay sesión de audio de '" + name + "' para cambiar el volumen");
+                    }
+                }
+                catch
+                {
+                }
+            });
+        }
+
+        private static readonly string[] BrowserNames = { "chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "iexplore" };
+
+        // Cierra el reproductor que está sonando y deja la fila lista para volver a abrirlo.
+        private void CloseMusicInline()
+        {
+            MusicInfo mi = MusicWatcher.Instance.Current;
+            string name = SourceProcessName(mi.SourceId);
+            Task.Run(() =>
+            {
+                try
+                {
+                    bool browser = BrowserNames.Any(b => name.StartsWith(b, StringComparison.OrdinalIgnoreCase));
+                    if (name.Length >= 4 && !browser)
+                    {
+                        HashSet<int> gamePids = new HashSet<int>();
+                        try { foreach (int gp in FindGamePids()) { gamePids.Add(gp); } } catch { }
+                        gamePids.Add(Process.GetCurrentProcess().Id);
+                        foreach (Process p in Process.GetProcesses())
+                        {
+                            try
+                            {
+                                if (p.ProcessName.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (gamePids.Contains(p.Id))
+                                    {
+                                        logger.Info("Música: no se cierra " + p.ProcessName + " (PID " + p.Id + ") porque es del juego o de Playnite");
+                                        continue;
+                                    }
+                                    logger.Info("Música: cerrando " + p.ProcessName + " (PID " + p.Id + ")");
+                                    p.Kill();
+                                }
+                            }
+                            catch
+                            {
+                            }
+                            finally
+                            {
+                                p.Dispose();
+                            }
+                        }
+                        logger.Info("Música: cerrado " + name);
+                    }
+                    else
+                    {
+                        logger.Info("Música: no se cierra '" + name + "' (navegador o nombre dudoso)");
+                    }
+                    Thread.Sleep(700);
+                    PlayniteApi.MainView.UIDispatcher.BeginInvoke(new Action(() =>
+                    {
+                        MenuWindow m = activeMenu;
+                        if (m == null)
+                        {
+                            return;
+                        }
+                        MusicInfo cur = MusicWatcher.Instance.Current;
+                        if (!(cur.HasSession && SourceRunning(cur.SourceId)))
+                        {
+                            string od, orr;
+                            MusicOpenTexts(GetMusicApps(), out od, out orr);
+                            m.SetMusicRow(false, Loc.T("Abrir música"), od, orr, null, null, true);
+                        }
+                        m.Activate();
+                    }));
+                    // Al cerrarse la app, Windows reparte el foco y a veces el menú se queda detrás: se vuelve a activar.
+                    foreach (int wait in new[] { 600, 1500 })
+                    {
+                        Thread.Sleep(wait);
+                        PlayniteApi.MainView.UIDispatcher.BeginInvoke(new Action(() =>
+                        {
+                            MenuWindow m2 = activeMenu;
+                            if (m2 != null)
+                            {
+                                m2.Activate();
+                            }
+                        }));
+                    }
+                }
+                catch
+                {
+                }
+            });
+        }
+
+        private static bool SourceRunning(string appId)
+        {
+            try
+            {
+                string s = appId ?? "";
+                int bang = s.LastIndexOf('!');
+                if (bang >= 0 && bang < s.Length - 1)
+                {
+                    s = s.Substring(bang + 1);
+                }
+                if (s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    s = s.Substring(0, s.Length - 4);
+                }
+                int us = s.IndexOf('_');
+                if (us > 0)
+                {
+                    s = s.Substring(0, us);
+                }
+                if (s.Length < 4)
+                {
+                    return true;
+                }
+                foreach (Process p in Process.GetProcesses())
+                {
+                    try
+                    {
+                        if (p.ProcessName.IndexOf(s, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            return true;
+                        }
+                    }
+                    catch
+                    {
+                    }
+                    finally
+                    {
+                        p.Dispose();
+                    }
+                }
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        // Abre el reproductor minimizado (el menú sigue abierto delante). Spotify admite --minimized.
+        private void LaunchMusicApp(string target)
+        {
+            Task.Run(() =>
+            {
+                try
+                {
+                    ProcessStartInfo psi = new ProcessStartInfo(target) { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Minimized };
+                    if (Path.GetFileName(target).Equals("Spotify.exe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        psi.Arguments = "--minimized";
+                    }
+                    Process.Start(psi);
+                    logger.Info("Música: abierto " + target);
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "Música: no se pudo abrir " + target);
+                }
+            });
+        }
+
         private MenuAction ShowMainPage(MenuAction startOn)
         {
             List<MenuEntry> items = new List<MenuEntry>();
@@ -1467,8 +2733,45 @@ namespace ConsoleOverlay
             if (achs != null)
             {
                 int got = achs.Count(x => x.Unlocked);
-                items.Add(new MenuEntry("trophy", Loc.T("Logros")) { Right = got + " / " + achs.Count, Desc = Loc.T("Logros del juego actual") });
+                items.Add(new MenuEntry("trophy", Loc.T("Logros")) { Right = got + " / " + achs.Count, Desc = Loc.T("Logros del juego actual"), Platinum = achs.Count > 0 && (got == achs.Count || achs.Any(x => x.Unlocked && MenuWindow.TrophyTier(x) >= 3)) });
                 map.Add(MenuAction.Achievements);
+            }
+            if (settings.ShowMusic)
+            {
+                if (lastMusicPlayer != settings.MusicPlayer)
+                {
+                    lastMusicPlayer = settings.MusicPlayer;
+                    MusicWatcher.Instance.SetPreferred(settings.MusicPlayer);
+                }
+                MusicWatcher.Instance.Start(settings.MusicPlayer);
+                MusicInfo mi = MusicWatcher.Instance.Current;
+                // Una sesión parada cuya aplicación ya se cerró no sirve para controlar nada: se ofrece abrir un reproductor.
+                if (MusicWatcher.Instance.Available && mi.HasSession && (mi.Playing || SourceRunning(mi.SourceId)))
+                {
+                    // Esta fila no cierra el menú: aceptar pausa o reanuda, izquierda y derecha cambian de canción.
+                    LearnMusicApp(mi);
+                    MenuEntry live = new MenuEntry("music", Loc.T("Música")) { MainMusic = true, Desc = Loc.T("{A} pausa · {L1}/{R1} canción · {X} cerrar") };
+                    ApplyLiveIcon(live, mi);
+                    items.Add(live);
+                    map.Add(MenuAction.Music);
+                }
+                else
+                {
+                    List<KeyValuePair<string, string>> apps = GetMusicApps();
+                    if (apps.Count > 0)
+                    {
+                        // Nada sonando: la fila ofrece abrir el reproductor (o elegir entre varios).
+                        string od, orr;
+                        MusicOpenTexts(apps, out od, out orr);
+                        MenuEntry openRow = new MenuEntry("music", Loc.T("Abrir música")) { OpenOnly = true, MainMusic = true, Right = orr, Desc = od };
+                        if (apps.Count == 1)
+                        {
+                            ApplyMusicIcon(openRow, apps[0].Value);
+                        }
+                        items.Add(openRow);
+                        map.Add(MenuAction.OpenMusic);
+                    }
+                }
             }
             if (!noFocus)
             {
@@ -1485,9 +2788,11 @@ namespace ConsoleOverlay
                 items.Add(new MenuEntry("lock", Loc.T("Quitar modo administrador del juego")));
                 map.Add(MenuAction.RemoveAdmin);
             }
+            List<MenuRecent> recents = settings.ShowRecents ? GetRecents() : null;
+            string endDesc = recents != null ? Loc.T("Cierra el juego · → cambiar a otro") : null;
             items.Add(noFocus
-                ? new MenuEntry("circle-x", Loc.T("Finalizar juego")) { Danger = true, Right = Loc.T("pide permiso de Windows") }
-                : new MenuEntry("circle-x", Loc.T("Finalizar juego")) { Danger = true });
+                ? new MenuEntry("circle-x", Loc.T("Finalizar juego")) { Danger = true, Right = Loc.T("pide permiso de Windows"), Desc = endDesc }
+                : new MenuEntry("circle-x", Loc.T("Finalizar juego")) { Danger = true, Desc = endDesc });
             map.Add(MenuAction.EndGame);
             items.Add(new MenuEntry("power", Loc.T("Energía")) { Desc = Loc.T("Suspender, reiniciar o apagar el equipo") });
             map.Add(MenuAction.Power);
@@ -1500,8 +2805,28 @@ namespace ConsoleOverlay
                         ? Loc.T("Juego en marcha (no se pausa: {0}) · sesión {1}", Loc.T(notPausedReason), sess)
                         : Loc.T("Juego en marcha (no se puede pausar) · sesión {0}", sess))
                     : Loc.T("Juego pausado · sesión {0}", sess));
-            int start = Math.Max(0, map.IndexOf(startOn));
-            int idx = Choose(head, GameName(), items, start, 0, true);
+            // Tras abrir un reproductor la fila pasa de «Abrir música» a «Música»: el cursor se queda en ella.
+            int start = map.IndexOf(startOn);
+            if (start < 0 && startOn == MenuAction.OpenMusic)
+            {
+                start = map.IndexOf(MenuAction.Music);
+            }
+            start = Math.Max(0, start);
+            int idx;
+            pendingRecents = recents;
+            try
+            {
+                idx = Choose(head, GameName(), items, start, 0, true);
+            }
+            finally
+            {
+                pendingRecents = null;
+            }
+            if (recents != null && idx >= map.Count && idx - map.Count < recents.Count)
+            {
+                switchTargetId = recents[idx - map.Count].Id;
+                return MenuAction.SwitchGame;
+            }
             return idx >= 0 && idx < map.Count ? map[idx] : MenuAction.Back;
         }
 
@@ -2213,7 +3538,13 @@ namespace ConsoleOverlay
                                             (accent != null ? " -> #" + accent.Value.R.ToString("X2") + accent.Value.G.ToString("X2") + accent.Value.B.ToString("X2") : ""));
                             }
                             string fontInfo;
-                            FontFamily themeFont = Palette.ThemeFont(out fontInfo);
+                            FontFamily themeFont = Palette.ChosenFont(settings.MenuFont, out fontInfo);
+                            if (themeFont == null)
+                            {
+                                string themeInfo;
+                                themeFont = Palette.ThemeFont(out themeInfo);
+                                fontInfo = fontInfo != null ? fontInfo + " | " + themeInfo : themeInfo;
+                            }
                             if (fontInfo != lastFontInfo)
                             {
                                 lastFontInfo = fontInfo;
@@ -2224,9 +3555,13 @@ namespace ConsoleOverlay
                             {
                                 logger.Info("Tiempo: datos listos, creando ventana del menú a los " + tm.ElapsedMilliseconds + " ms");
                             }
+                            MenuWindow.NextRecents = pendingRecents;
                             MenuWindow created = new MenuWindow(title, text, items, defaultIndex, cancelIndex, cover, backdrop,
                                                                 session, total, ResolveButtonStyle(), settings.UseGuideButton, accent, themeFont);
                             created.OnChosen = handler;
+                            created.OpenMusicInline = OpenMusicInline;
+                            created.CloseMusicInline = CloseMusicInline;
+                            created.MusicVolumeChange = delta => ChangeMusicVolume(created, delta);
                             created.NoFocus = noFocus;
                             created.PipFallbackLoader = () => LoadPipFallback(backdrop);
                             if (settings.ShowLivePreview && gameHwnd != IntPtr.Zero && NativeMethods.IsWindow(gameHwnd))
@@ -2275,6 +3610,10 @@ namespace ConsoleOverlay
                             }
                             activeMenu = created;
                             w = created;
+                            if (settings.ShowMusic)
+                            {
+                                ChangeMusicVolume(created, 0f); // lee el volumen actual del reproductor para mostrarlo en la tarjeta
+                            }
                             Task.Run(() => UiFeedback.Pulse(90, 0.35));
                             PlayniteApi.MainView.UIDispatcher.BeginInvoke(new Action(() =>
                             {
@@ -2292,6 +3631,7 @@ namespace ConsoleOverlay
                         else
                         {
                             w.OnChosen = handler;
+                            w.Recents = pendingRecents;
                             if (achList != null)
                             {
                                 w.SetAchievements(title, achSummary, achFraction, achList, cover, backdrop);
@@ -2571,6 +3911,7 @@ namespace ConsoleOverlay
         // ------------------------------------------------------------------
 
         private Stopwatch menuTimer;
+        private string lastMusicPlayer;
 
         private bool EnterMenu()
         {
@@ -2632,11 +3973,15 @@ namespace ConsoleOverlay
 
             // Playnite NO se pone "siempre encima": así el telón y el menú quedan siempre por encima
             // de él (si Playnite fuera "siempre encima", al activarse taparía el telón y parpadearía).
+            Stopwatch swOpen = Stopwatch.StartNew();
             ShowCurtain(gameHwnd);
+            long tCurtain = swOpen.ElapsedMilliseconds;
             MutePlaynite(true);
             playniteHwnd = GetPlayniteWindow();
             NativeMethods.SetTopmost(playniteHwnd, false);
+            long tPre = swOpen.ElapsedMilliseconds;
             bool front = NativeMethods.BringToFront(playniteHwnd, false);
+            logger.Info("Tiempo: telón " + tCurtain + " ms, preparar " + (tPre - tCurtain) + " ms, traer Playnite " + (swOpen.ElapsedMilliseconds - tPre) + " ms");
             playniteMinimizedByGuard = false;
             RaiseCurtain();
             logger.Info("Playnite al frente: " + front + " (" + NativeMethods.Describe(playniteHwnd) + ")");
@@ -2654,6 +3999,19 @@ namespace ConsoleOverlay
                     logger.Warn("Fallo de foco. Elevación (1 sí, 0 no, -1 desconocido/protegido): Playnite=" +
                                 NativeMethods.IsElevated((int)pnPid) + ", juego:" + ge +
                                 ". Primer plano ahora: " + NativeMethods.Describe(NativeMethods.GetForegroundWindow()));
+                    // Diagnóstico y recuperación: ¿el juego sigue congelado (hilos suspendidos o ventana sin responder)?
+                    IntPtr fgw = NativeMethods.GetForegroundWindow();
+                    logger.Warn("Ventana en primer plano sin responder: " + NativeMethods.IsHung(fgw));
+                    foreach (int gp in pids)
+                    {
+                        int sus = SuspendedThreads(gp);
+                        logger.Warn("Juego PID " + gp + ": hilos suspendidos=" + sus);
+                        if (sus > 0)
+                        {
+                            for (int k = 0; k < 4; k++) { NativeMethods.ResumeProcess(gp); }
+                            logger.Warn("Juego PID " + gp + ": reanudado a la fuerza; hilos suspendidos ahora=" + SuspendedThreads(gp));
+                        }
+                    }
                 }
                 catch
                 {
@@ -2799,10 +4157,42 @@ namespace ConsoleOverlay
 
         // Motivo por el que NO se debe pausar este juego (null = se puede pausar). Pausar un juego online o con anticheat
         // puede desconectar de la partida o activar sanciones.
+        // Motivo por el que NO se debe abrir el menú en este juego (null = se abre). Los emuladores con su propio menú
+        // (RetroArch, PCSX2, DuckStation...) usan el botón Guía por su cuenta.
+        private string SkipOverlayReason(Game g)
+        {
+            try
+            {
+                if (g == null)
+                {
+                    return null;
+                }
+                if (g.Tags != null && g.Tags.Any(t => t != null && t.Name != null &&
+                    (t.Name.Equals("Sin overlay", StringComparison.OrdinalIgnoreCase) ||
+                     t.Name.Equals("NoOverlay", StringComparison.OrdinalIgnoreCase))))
+                {
+                    return "etiqueta «Sin overlay»";
+                }
+                if (settings.SkipEmulatedGames && g.GameActions != null &&
+                    g.GameActions.Any(a => a != null && a.IsPlayAction && a.Type == GameActionType.Emulator))
+                {
+                    return "juego de emulador";
+                }
+            }
+            catch
+            {
+            }
+            return null;
+        }
+
         private string NoPauseReason(Game g, List<int> pids)
         {
             try
             {
+                if (!settings.PauseGame)
+                {
+                    return "pausa desactivada en ajustes";
+                }
                 if (g.Tags != null && g.Tags.Any(t => t != null && t.Name != null &&
                     (t.Name.Equals("No pausar", StringComparison.OrdinalIgnoreCase) ||
                      t.Name.Equals("NoPause", StringComparison.OrdinalIgnoreCase))))
@@ -3067,11 +4457,12 @@ namespace ConsoleOverlay
             }
 
             logger.Info("Volver al juego. PIDs: " + string.Join(",", pids));
+            Stopwatch swBack = Stopwatch.StartNew();
             Resume(pids);
-            Thread.Sleep(120);
+            Thread.Sleep(50);
 
             WaitKeysReleased(3000);
-            Thread.Sleep(150);
+            Thread.Sleep(60);
 
             IntPtr target = gameHwnd;
             if (target == IntPtr.Zero || !NativeMethods.IsWindow(target))
@@ -3126,7 +4517,7 @@ namespace ConsoleOverlay
                     Thread.Sleep(40);
                     waited += 40;
                 }
-                int hold = curtainThumb != IntPtr.Zero ? 300 : 700;
+                int hold = curtainThumb != IntPtr.Zero ? 150 : 450;
                 Thread.Sleep(hold);
                 logger.Info("Telón: juego al frente tras " + waited + " ms, imagen del juego " + (curtainThumb != IntPtr.Zero) +
                             ", espera " + hold + " ms, Playnite minimizado " + NativeMethods.IsMinimized(playniteHwnd));
@@ -3143,7 +4534,8 @@ namespace ConsoleOverlay
                 Notify(Loc.T("El juego está reanudado, pero no se pudo traer al frente. Prueba con Alt+Tab."));
             }
 
-            Thread.Sleep(400);
+            Thread.Sleep(220);
+            logger.Info("Tiempo: volver al juego en " + swBack.ElapsedMilliseconds + " ms");
             if (settings.MuteGame)
             {
                 AudioMuter.SetMute(pids.Union(mutedPids).ToList(), false);

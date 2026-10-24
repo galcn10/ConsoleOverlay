@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.3.0
+
+(Includes everything prepared as 1.2.1, which was never released on its own.)
+
+**New**
+- Settings redesigned: tabs on top, switches with a short help line under each option, and a search box.
+- "Switch to": with "End game" selected in the menu, press right to see your last 3 played games under the preview. Pick one and the current game closes and the new one opens behind a transition screen (no desktop or Playnite flashing in between). Optional ("Switch games from the menu" in the Menu tab).
+- Music card: shows what is playing (Spotify, SimpMusic, YouTube Music in the browser, VLC...) through Windows' media controls. Accept pauses, left/right change track, L2/R2 or the right stick change the volume (the bar appears only while you touch it), Y toggles shuffle and R3 cycles repeat (when the player supports it). The card takes the colour and icon of the player.
+- Music: when nothing is playing, the row becomes "Open music" and launches your player (Spotify by default if installed; add more in "Players to open", one per line as `Name|path`). It opens minimized and you stay in the game. A player can also be closed from the menu.
+- Achievements: trophy by rarity on every row (bronze, silver, gold, platinum), trophy counters in the header, progress bar for partial ones, gold highlight for unlocked, and a platinum trophy on the main menu row when you have them all.
+- New setting "Pause the game when the menu opens" (on by default), "No pausar" / "NoPause" tag per game.
+- Skip the overlay per game with the "Sin overlay" / "NoOverlay" tag, or in every emulator game with "Don't open the menu in emulator games".
+- New glass look and numbered controllers (1 blue, 2 red, 3 green, 4 yellow) with battery level colour.
+- Button legends in the music card follow the controller style chosen in Playnite (Xbox, PlayStation, Nintendo).
+- Translated into all 9 languages.
+
+**Improved**
+- Faster opening and closing of the menu, also when calling it repeatedly.
+- Music apps opened from the menu are minimized only while the menu is open and no longer touch windows while you play.
+
+**Fixed**
+- Menu could disappear after closing a music player.
+- Possible freeze when returning to the game after closing a player: if the game is still suspended, it is now resumed automatically and the log records the state.
+
 ## 1.2.0
 
 - New menu design: list with colored icons, a short description under the selected option and a curved accent bar. Lighter on the GPU (no zoom, minimal animation).

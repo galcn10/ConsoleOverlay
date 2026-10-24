@@ -1,5 +1,16 @@
 AddonId: ConsoleOverlay_galcn10
 Packages:
+  - Version: 1.3.0
+    RequiredApiVersion: 6.15.0
+    ReleaseDate: 2026-10-24
+    PackageUrl: https://github.com/galcn10/ConsoleOverlay/releases/download/v1.3.0/ConsoleOverlay_galcn10_1_3_0.pext
+    Changelog:
+      - Settings redesigned with tabs, switches with help text and a search box.
+      - New "Switch to" panel - with "End game" selected, pick one of your last 3 games; the current game closes and the new one opens behind a transition screen.
+      - Music card with shuffle, repeat, volume and the player's own colour and icon; "Open music" launches your player when nothing is playing; configurable list of players.
+      - Achievements - trophy by rarity on each row, trophy counters, progress bars, gold highlight for unlocked and a platinum trophy on the main menu when you have them all.
+      - New options - pause the game when the menu opens, NoPause / NoOverlay tags, skip emulator games, numbered controller batteries and a glass look.
+      - Faster menu, fixes when closing a music player and when returning to the game; all 9 languages updated.
   - Version: 1.2.0
     RequiredApiVersion: 6.15.0
     ReleaseDate: 2026-10-22
@@ -9,15 +20,6 @@ Packages:
       - Clips play inside the gallery with the optional mpv player (progress bar, durations, no-audio indicator).
       - Achievements without duplicates, unlocked first, filters, rarity highlight and locked ones in grayscale.
       - Faster menu opening; fixes for first-open sound burst and Playnite not responding after repeated calls.
-  - Version: 1.1.0
-    RequiredApiVersion: 6.15.0
-    ReleaseDate: 2026-10-19
-    PackageUrl: https://github.com/galcn10/ConsoleOverlay/releases/download/v1.1.0/ConsoleOverlay_galcn10_1_1_0.pext
-    Changelog:
-      - Menu sounds (synthesized, no files) with volume control.
-      - Controller vibration when the menu opens.
-      - Animations can be turned off.
-      - Optional Start + LB held for 1.5 s to close the game (off by default).
   - Version: 1.0.0
     RequiredApiVersion: 6.15.0
     ReleaseDate: 2026-10-17

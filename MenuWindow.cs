@@ -21,12 +21,31 @@ namespace ConsoleOverlay
         public bool Danger;
         public string Right;
         public string Desc;
+        // Fila de música que solo abre un reproductor (no hay nada sonando): sin tarjeta ni control de pista.
+        public bool OpenOnly;
+        // Fila de música de la pantalla principal (la que cambia en el sitio entre «Abrir música» y «Música»).
+        public bool MainMusic;
+        // Icono propio de una aplicación y su color (filas de reproductores).
+        public ImageSource Image;
+        public Color? AccentColor;
+        // «Logros» con el platino (o todos los trofeos): trofeo de platino grande en la insignia.
+        public bool Platinum;
+        public Brush PlateBrush;
 
         public MenuEntry(string glyph, string text)
         {
             Glyph = glyph;
             Text = text;
         }
+    }
+
+    // Un juego reciente del panel «Cambiar a».
+    internal sealed class MenuRecent
+    {
+        public string Id;
+        public string Name;
+        public string When;
+        public ImageSource Image;
     }
 
     // ----------------------------------------------------------------------
@@ -43,6 +62,7 @@ namespace ConsoleOverlay
             return b;
         }
 
+        private static readonly Brush AppBadgeBrush = Make("#F01A1F2B");
         private static Brush BackBrush = Make("#0D0F14");
         private static Brush RowBrush = Make("#12151D");
         private static Brush SelBrush = Make("#F7F8FB");
@@ -73,12 +93,81 @@ namespace ConsoleOverlay
             tintDark = Palette.Mix(BaseDark, a, 0.11 * k);
             BackBrush = Frozen(tintDark);
             Color row = Palette.Mix(Color.FromRgb(0x12, 0x15, 0x1D), a, 0.12 * k);
-            RowBrush = Frozen(Color.FromArgb(150, row.R, row.G, row.B));
+            // Cristal: degradado vertical (más claro arriba) teñido con el acento. Es un pincel, no un efecto: no cuesta nada al dibujar.
+            Color gTop = Palette.Mix(Colors.White, a, 0.55 * k + 0.0);
+            Color gMid = Palette.Mix(Color.FromRgb(0x12, 0x15, 0x1D), a, 0.30 * k);
+            Color gBot = Palette.Mix(Color.FromRgb(0x12, 0x15, 0x1D), a, 0.45 * k);
+            LinearGradientBrush glass = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+            glass.GradientStops.Add(new GradientStop(Color.FromArgb(70, gTop.R, gTop.G, gTop.B), 0.0));
+            glass.GradientStops.Add(new GradientStop(Color.FromArgb(120, gMid.R, gMid.G, gMid.B), 0.55));
+            glass.GradientStops.Add(new GradientStop(Color.FromArgb(140, gBot.R, gBot.G, gBot.B), 1.0));
+            glass.Freeze();
+            RowBrush = glass;
             PillBrush = Frozen(Palette.Mix(Color.FromRgb(0x23, 0x28, 0x38), a, 0.22 * k));
             BadgeBrush = Frozen(Palette.Mix(Color.FromRgb(0x26, 0x2C, 0x3D), a, 0.34 * k));
             BadgeSelBrush = Frozen(Palette.Mix(Color.FromRgb(0xE3, 0xE6, 0xF0), a, 0.12 * k));
             SelBrush = Frozen(Palette.Mix(Color.FromRgb(0xF7, 0xF8, 0xFB), a, 0.03 * k));
         }
+
+        // Borde de cristal: brillante arriba y casi invisible abajo.
+        private static readonly Brush GlassEdge = MakeEdge();
+        private static Brush MakeEdge()
+        {
+            LinearGradientBrush e = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+            e.GradientStops.Add(new GradientStop(Color.FromArgb(120, 255, 255, 255), 0.0));
+            e.GradientStops.Add(new GradientStop(Color.FromArgb(40, 255, 255, 255), 0.5));
+            e.GradientStops.Add(new GradientStop(Color.FromArgb(18, 255, 255, 255), 1.0));
+            e.Freeze();
+            return e;
+        }
+
+        // Degradados de una opción con color (se calculan una vez por color).
+        private static readonly Dictionary<Color, Brush> badgeGrad = new Dictionary<Color, Brush>();
+        private static readonly Dictionary<Color, Brush> selGrad = new Dictionary<Color, Brush>();
+
+        private static Color SolidColorOf(Brush b)
+        {
+            SolidColorBrush sb = b as SolidColorBrush;
+            return sb != null ? sb.Color : Colors.Gray;
+        }
+
+        // Recuadro del icono: claro arriba, color en medio y más oscuro abajo.
+        private static Brush BadgeGradient(Brush solid)
+        {
+            Color c = SolidColorOf(solid);
+            Brush r;
+            if (!badgeGrad.TryGetValue(c, out r))
+            {
+                LinearGradientBrush g = new LinearGradientBrush { StartPoint = new Point(0.2, 0), EndPoint = new Point(0.8, 1) };
+                g.GradientStops.Add(new GradientStop(Palette.Mix(c, Colors.White, 0.32), 0.0));
+                g.GradientStops.Add(new GradientStop(c, 0.55));
+                g.GradientStops.Add(new GradientStop(Palette.Mix(c, Colors.Black, 0.22), 1.0));
+                g.Freeze();
+                r = g;
+                badgeGrad[c] = r;
+            }
+            return r;
+        }
+
+        // Fila seleccionada con color: degradado del color de la acción, lo bastante oscuro para leer texto blanco.
+        private static Brush SelGradient(Brush solid)
+        {
+            Color c = SolidColorOf(solid);
+            Brush r;
+            if (!selGrad.TryGetValue(c, out r))
+            {
+                LinearGradientBrush g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+                g.GradientStops.Add(new GradientStop(Palette.Mix(c, Colors.Black, 0.28), 0.0));
+                g.GradientStops.Add(new GradientStop(Palette.Mix(c, Color.FromRgb(0x14, 0x17, 0x22), 0.62), 1.0));
+                g.Freeze();
+                r = g;
+                selGrad[c] = r;
+            }
+            return r;
+        }
+
+        private static readonly Brush SelDescBrush = Make("#E9EEFB");
+        private static readonly Brush BarWhite = Make("#F2FFFFFF");
 
         private List<MenuEntry> entries;
         private int cancelIndex;
@@ -111,6 +200,8 @@ namespace ConsoleOverlay
         private int refreshTicks;
         // Lector de la batería del mando (null = no mostrar).
         public Func<List<BatteryInfo>> BatteryProvider;
+        public static List<MenuRecent> NextRecents;   // lo lee el constructor antes de construir la primera pantalla
+        public List<MenuRecent> Recents;     // juegos recientes para «Cambiar a» (null = sin panel)
         public IntPtr PipSource;            // ventana del juego de la que se muestra la miniatura (0 = sin miniatura)
         public bool PipLive;                // true: el juego sigue en marcha (miniatura en directo)
         private IntPtr pipThumb;
@@ -181,6 +272,8 @@ namespace ConsoleOverlay
             {
                 FontFamily = themeFont; // los textos heredan la tipografía del tema de Playnite
             }
+            Recents = NextRecents;
+            NextRecents = null;
             this.entries = entries;
             this.cancelIndex = cancelIndex;
             this.sessionProvider = sessionProvider;
@@ -286,6 +379,13 @@ namespace ConsoleOverlay
             Closed += (s, e) =>
             {
                 timer.Stop();
+                try
+                {
+                    MusicWatcher.Instance.Changed -= OnMusicChanged;
+                }
+                catch
+                {
+                }
                 HidePip();
                 CloseViewer();
                 Action<int> h = OnChosen;
@@ -444,6 +544,9 @@ namespace ConsoleOverlay
             };
         }
 
+        // Color de cada mando según su posición (como los LED de jugador de una consola): 1 azul, 2 rojo, 3 verde, 4 amarillo.
+        private static readonly string[] PadColors = { "5AA2FF", "FF6B6B", "4FDC95", "FFC857" };
+
         private static readonly Brush OkBrush = Make("#7DDC9A");
         private static readonly Brush MidBrush = Make("#FFD479");
 
@@ -467,11 +570,14 @@ namespace ConsoleOverlay
                 {
                     Orientation = Orientation.Horizontal,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(i == 0 ? 0 : 30, 0, 0, 0)
                 };
                 string key = b.Wired ? "battery-charging" : (b.Level >= 3 ? "battery-full" : (b.Level == 2 ? "battery-medium" : (b.Level == 1 ? "battery-low" : "battery")));
                 Brush color = b.Wired ? OkBrush : (b.Level <= 1 ? DangerBrush : (b.Level == 2 ? MidBrush : OkBrush));
-                one.Children.Add(SmallIcon("gamepad-2", color, 34));
+                // Con varios mandos, cada uno lleva su color (mando y número) y una pastilla suave de ese color;
+                // la batería y el porcentaje mantienen el color del nivel.
+                string padHex = PadColors[Math.Max(0, b.Index - 1) % PadColors.Length];
+                Brush padBrush = list.Count > 1 ? Make("#" + padHex) : color;
+                one.Children.Add(SmallIcon("gamepad-2", padBrush, 34));
                 if (list.Count > 1)
                 {
                     one.Children.Add(new TextBlock
@@ -479,7 +585,7 @@ namespace ConsoleOverlay
                         Text = b.Index.ToString(),
                         FontSize = 24,
                         FontWeight = FontWeights.Bold,
-                        Foreground = color,
+                        Foreground = padBrush,
                         VerticalAlignment = VerticalAlignment.Center,
                         Margin = new Thickness(4, 0, 0, 0)
                     });
@@ -508,7 +614,24 @@ namespace ConsoleOverlay
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(8, 0, 0, 0)
                 });
-                batteryHost.Children.Add(one);
+                if (list.Count > 1)
+                {
+                    Border pill = new Border
+                    {
+                        Background = Make("#22" + padHex),
+                        BorderBrush = Make("#66" + padHex),
+                        BorderThickness = new Thickness(2),
+                        CornerRadius = new CornerRadius(30),
+                        Padding = new Thickness(12, 4, 18, 4),
+                        Margin = new Thickness(i == 0 ? 0 : 20, 0, 0, 0),
+                        Child = one
+                    };
+                    batteryHost.Children.Add(pill);
+                }
+                else
+                {
+                    batteryHost.Children.Add(one);
+                }
             }
             batteryHost.Visibility = Visibility.Visible;
         }
@@ -852,6 +975,13 @@ namespace ConsoleOverlay
             {
                 right.Children.Add(BuildRow(i));
             }
+            // Con muchas filas (música, administrador...) la lista no cabe en 810 px: se reduce lo justo para que se vean todas enteras.
+            double need = entries.Count * 92 + 40;
+            if (need > 800)
+            {
+                double k = Math.Max(0.7, 800 / need);
+                right.LayoutTransform = new ScaleTransform(k, k);
+            }
             spotInit = false;
             AnimateRowsIn();
             Grid.SetColumn(right, hasGame ? 1 : 0);
@@ -874,9 +1004,8 @@ namespace ConsoleOverlay
                     VerticalAlignment = VerticalAlignment.Top,
                     CornerRadius = new CornerRadius(18),
                     Background = new SolidColorBrush(Color.FromArgb(215, 6, 7, 10)),
-                    BorderBrush = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)),
+                    BorderBrush = GlassEdge,
                     BorderThickness = new Thickness(1.5),
-                    Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 36, ShadowDepth = 8, Opacity = 0.55, Color = Colors.Black },
                     Visibility = Visibility.Collapsed
                 };
                 Grid.SetRowSpan(pipFrame, 3);
@@ -906,11 +1035,689 @@ namespace ConsoleOverlay
                 canvas.Children.Add(pipLabel);
             }
 
+            // Tarjeta de música (debajo de la miniatura): solo si el menú trae la fila «Música».
+            musicCard = null;
+            if (hasGame && entries != null && entries.Any(x => x.Glyph == "music"))
+            {
+                UIElement mc = BuildMusicCard();
+                Grid.SetRowSpan(mc, 3);
+                canvas.Children.Add(mc);
+                // Chuleta de botones bajo la tarjeta (en la fila no cabe todo el texto).
+                TextBlock hint = new TextBlock
+                {
+                    Text = PadText(Loc.T("←/→ ±10 s · {L2}/{R2} volumen · {Y} aleatorio · {R3} repetir")),
+                    FontSize = 15,
+                    Foreground = MutedBrush,
+                    Width = PipW,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center,
+                    Margin = new Thickness(PipX, MusicY + MusicH + 10, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    IsHitTestVisible = false,
+                    Visibility = musicCard.Visibility
+                };
+                Grid.SetRowSpan(hint, 3);
+                canvas.Children.Add(hint);
+                musicCard.IsVisibleChanged += (s3, e3) => hint.Visibility = musicCard.Visibility;
+                UpdateMusic();
+            }
+
+            // Panel «Cambiar a»: ocupa el hueco de la tarjeta de música cuando la selección está en «Finalizar juego».
+            recPanel = null;
+            recFocus = -1;
+            if (hasGame && Recents != null && Recents.Count > 0 && entries != null && entries.Any(x => x.Glyph == "circle-x"))
+            {
+                Canvas rp = BuildRecentsPanel(cover);
+                Grid.SetRowSpan(rp, 3);
+                canvas.Children.Add(rp);
+            }
+
             StackPanel hints = BuildHints(buttonStyle, guideEnabled, true);
             Grid.SetRow(hints, 2);
             canvas.Children.Add(hints);
 
             return canvas;
+        }
+
+        // ---------- Panel «Cambiar a» ----------
+
+        private Canvas recPanel;
+        private int recFocus = -1;
+        private List<Border> recTiles;
+        private List<ScaleTransform> recScales;
+        private List<bool> recOn;
+        private TextBlock recName, recWhen;
+
+        private Canvas BuildRecentsPanel(ImageSource cover)
+        {
+            bool portrait = cover != null && cover.Height > cover.Width * 1.25;
+            double tw = 100, th = portrait ? 150 : 100, gap = 28, top = 56;
+            recTiles = new List<Border>();
+            recScales = new List<ScaleTransform>();
+            recOn = new List<bool>();
+            Canvas c = new Canvas
+            {
+                Width = PipW,
+                Height = 330,
+                Margin = new Thickness(PipX, MusicY - 12, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Visibility = Visibility.Collapsed
+            };
+            TextBlock head = new TextBlock { Text = Loc.T("Cambiar a"), FontSize = 22, Foreground = MutedBrush };
+            Canvas.SetLeft(head, 6);
+            Canvas.SetTop(head, 0);
+            c.Children.Add(head);
+            for (int i = 0; i < Recents.Count && i < 3; i++)
+            {
+                MenuRecent r = Recents[i];
+                ScaleTransform sc = new ScaleTransform(1, 1);
+                Border tile = new Border
+                {
+                    Width = tw,
+                    Height = th,
+                    CornerRadius = new CornerRadius(14),
+                    BorderThickness = new Thickness(3),
+                    BorderBrush = Brushes.Transparent,
+                    Opacity = 0.78,
+                    RenderTransformOrigin = new Point(0.5, 0.5),
+                    RenderTransform = sc
+                };
+                if (r.Image != null)
+                {
+                    ImageBrush ib = new ImageBrush(r.Image) { Stretch = Stretch.UniformToFill };
+                    ib.Freeze();
+                    tile.Background = ib;
+                }
+                else
+                {
+                    tile.Background = BadgeBrush;
+                    tile.Child = new TextBlock
+                    {
+                        Text = r.Name,
+                        Foreground = TextBrush,
+                        FontSize = 16,
+                        FontWeight = FontWeights.SemiBold,
+                        TextWrapping = TextWrapping.Wrap,
+                        TextAlignment = TextAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(6)
+                    };
+                }
+                Canvas.SetLeft(tile, 12 + i * (tw + gap));
+                Canvas.SetTop(tile, top);
+                c.Children.Add(tile);
+                recTiles.Add(tile);
+                recScales.Add(sc);
+                recOn.Add(false);
+            }
+            recName = new TextBlock
+            {
+                FontSize = 24,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = TextBrush,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Width = PipW - 12
+            };
+            Canvas.SetLeft(recName, 6);
+            Canvas.SetTop(recName, top + th + 34);
+            c.Children.Add(recName);
+            recWhen = new TextBlock { FontSize = 18, Foreground = MutedBrush, Width = PipW - 12 };
+            Canvas.SetLeft(recWhen, 6);
+            Canvas.SetTop(recWhen, top + th + 68);
+            c.Children.Add(recWhen);
+            recPanel = c;
+            return c;
+        }
+
+        private bool IsEndRow()
+        {
+            return !achMode && !galMode && entries != null && selected >= 0 && selected < entries.Count && entries[selected].Glyph == "circle-x";
+        }
+
+        // Muestra u oculta el panel y mueve el foco entre pósters (solo escala y opacidad: barato y fluido).
+        private void UpdateRecents()
+        {
+            if (recPanel == null)
+            {
+                return;
+            }
+            bool show = IsEndRow();
+            if (!show)
+            {
+                recFocus = -1;
+            }
+            recPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (musicCard != null)
+            {
+                musicCard.Visibility = show ? Visibility.Collapsed : (MusicWatcher.Instance.Current.HasSession ? Visibility.Visible : Visibility.Collapsed);
+            }
+            double big = recTiles.Count > 0 && recTiles[0].Height > 120 ? 1.12 : 1.16;
+            for (int i = 0; i < recTiles.Count; i++)
+            {
+                bool f = i == recFocus;
+                if (recOn[i] == f)
+                {
+                    continue;
+                }
+                recOn[i] = f;
+                recTiles[i].BorderBrush = f ? Brushes.White : Brushes.Transparent;
+                double sTo = f ? big : 1.0;
+                double oTo = f ? 1.0 : 0.78;
+                if (UiFeedback.Animations)
+                {
+                    TimeSpan t = TimeSpan.FromMilliseconds(150);
+                    CubicEase ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                    recScales[i].BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(sTo, t) { EasingFunction = ease });
+                    recScales[i].BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(sTo, t) { EasingFunction = ease });
+                    recTiles[i].BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(oTo, t) { EasingFunction = ease });
+                }
+                else
+                {
+                    recScales[i].BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                    recScales[i].BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                    recTiles[i].BeginAnimation(UIElement.OpacityProperty, null);
+                    recScales[i].ScaleX = sTo;
+                    recScales[i].ScaleY = sTo;
+                    recTiles[i].Opacity = oTo;
+                }
+            }
+            if (recFocus >= 0 && recFocus < Recents.Count)
+            {
+                recName.Text = Recents[recFocus].Name;
+                recName.Foreground = TextBrush;
+                recWhen.Text = Recents[recFocus].When ?? "";
+            }
+            else
+            {
+                recName.Text = Loc.T("→ elegir otro juego");
+                recName.Foreground = MutedBrush;
+                recWhen.Text = "";
+            }
+        }
+
+        // ---------- Tarjeta de música ----------
+
+        private Border musicCard;
+        private Border musicArt;
+        private UIElement musicArtIcon;
+        private StackPanel musicVol;
+        private Shapes.Path musicArtPath, musicShufPath, musicRepPath;
+        private UIElement musicShufBox, musicRepBox;
+        private static readonly Geometry GeoRepeat = FrozenGeo("M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z");
+        private static readonly Geometry GeoRepeatOne = FrozenGeo("M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zM13 15V9h-1l-2 1v1h1.5v4H13z");
+        private Border musicVolFill;
+        private Image musicMark;
+        private TextBlock musicSrc, musicTitle, musicArtist, musicCur, musicDur;
+        private Border musicFill;
+        private Shapes.Path musicPlayIcon;
+        private BitmapSource musicArtShown;
+        private bool musicHooked;
+        private const double MusicY = 690, MusicH = 172;
+        private static readonly Brush MusicGreen = Make("#22C55E");
+        private Brush musicAccent;
+        private Color? musicAccentFor;
+
+        // Color de la app de música para la tarjeta; si es gris, blanco o muy oscuro se usa el verde de siempre.
+        private Brush MusicAccentBrush()
+        {
+            Color? c = null;
+            if (entries != null)
+            {
+                foreach (MenuEntry me in entries)
+                {
+                    if (me.MainMusic && me.Image != null)
+                    {
+                        c = me.AccentColor;
+                        break;
+                    }
+                }
+            }
+            if (!c.HasValue)
+            {
+                return MusicGreen;
+            }
+            if (musicAccent != null && musicAccentFor.HasValue && musicAccentFor.Value == c.Value)
+            {
+                return musicAccent;
+            }
+            double r = c.Value.R / 255.0, g = c.Value.G / 255.0, b = c.Value.B / 255.0;
+            double max = Math.Max(r, Math.Max(g, b)), min = Math.Min(r, Math.Min(g, b));
+            double sat = max <= 0 ? 0 : (max - min) / max;
+            if (sat < 0.28)
+            {
+                return MusicGreen;
+            }
+            // Se aviva y se ajusta el brillo para que se lea sobre el cristal.
+            double scale = 1.0;
+            if (max < 0.62)
+            {
+                scale = 0.62 / Math.Max(max, 0.01);
+            }
+            else if (max > 0.95)
+            {
+                scale = 0.95 / max;
+            }
+            Func<double, byte> f = v => (byte)Math.Max(0, Math.Min(255, Math.Round(v * scale * 255)));
+            SolidColorBrush br = new SolidColorBrush(Color.FromRgb(f(r), f(g), f(b)));
+            br.Freeze();
+            musicAccent = br;
+            musicAccentFor = c;
+            return br;
+        }
+
+        private void ApplyMusicAccent()
+        {
+            if (musicSrc == null)
+            {
+                return;
+            }
+            Brush a = MusicAccentBrush();
+            musicSrc.Foreground = a;
+            if (musicArtPath != null)
+            {
+                musicArtPath.Stroke = a;
+            }
+            if (musicVolFill != null)
+            {
+                musicVolFill.Background = a;
+            }
+            if (musicCard != null && IsMusicRow())
+            {
+                musicCard.BorderBrush = a;
+            }
+        }
+        private static readonly Brush MusicTrack = Make("#38FFFFFF");
+        private static readonly Geometry GeoPlay = FrozenGeo("M7 4v16l13-8z");
+        private static readonly Geometry GeoPause = FrozenGeo("M6 5h4v14H6zM14 5h4v14h-4z");
+
+        private static Geometry FrozenGeo(string data)
+        {
+            Geometry g = Geometry.Parse(data);
+            g.Freeze();
+            return g;
+        }
+
+        private static UIElement FilledIcon(string data, double size, out Shapes.Path path)
+        {
+            path = new Shapes.Path { Data = FrozenGeo(data), Fill = Brushes.White };
+            return new Viewbox
+            {
+                Width = size,
+                Height = size,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new Canvas { Width = 24, Height = 24, Children = { path } }
+            };
+        }
+
+        private UIElement BuildMusicCard()
+        {
+            if (!musicHooked)
+            {
+                MusicWatcher.Instance.Changed += OnMusicChanged;
+                musicHooked = true;
+            }
+            musicCard = new Border
+            {
+                Width = PipW,
+                Height = MusicH,
+                Margin = new Thickness(PipX, MusicY, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                CornerRadius = new CornerRadius(20),
+                Padding = new Thickness(0),
+                Background = RowBrush,
+                BorderBrush = GlassEdge,
+                BorderThickness = new Thickness(1.5),
+                Visibility = Visibility.Collapsed
+            };
+            StackPanel col = new StackPanel { Margin = new Thickness(14) };
+
+            Grid top = new Grid { Height = 84 };
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(84) });
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            musicArt = new Border { Width = 84, Height = 84, CornerRadius = new CornerRadius(14), Background = BadgeBrush };
+            musicArtPath = MakeIcon("music");
+            musicArtPath.Stroke = MusicGreen;
+            musicArtIcon = new Viewbox { Width = 36, Height = 36, VerticalAlignment = VerticalAlignment.Center, Child = new Canvas { Width = 24, Height = 24, Children = { musicArtPath } } };
+            Grid artHost = new Grid { Width = 84, Height = 84 };
+            artHost.Children.Add(musicArt);
+            artHost.Children.Add(musicArtIcon);
+            musicArtShown = null;
+            Grid.SetColumn(artHost, 0);
+            top.Children.Add(artHost);
+
+            StackPanel info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
+            musicSrc = new TextBlock { FontSize = 15, Foreground = MusicGreen, FontWeight = FontWeights.SemiBold };
+            musicTitle = new TextBlock { FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = TextBrush, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 5, 0, 0) };
+            musicArtist = new TextBlock { FontSize = 17, Foreground = MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) };
+            musicSrc.VerticalAlignment = VerticalAlignment.Center;
+            Shapes.Path volPath;
+            UIElement volGlyph = FilledIcon("M3 9v6h4l5 5V4L7 9H3zM16.5 12A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z", 18, out volPath);
+            volPath.Fill = MutedBrush;
+            musicVolFill = new Border { Height = 4, Width = 0, CornerRadius = new CornerRadius(2), Background = MusicGreen, HorizontalAlignment = HorizontalAlignment.Left };
+            Grid volTrack = new Grid { Width = 64, Height = 4, Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            volTrack.Children.Add(new Border { CornerRadius = new CornerRadius(2), Background = MusicTrack });
+            volTrack.Children.Add(musicVolFill);
+            musicVol = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            musicVol.Children.Add(volGlyph);
+            musicVol.Children.Add(volTrack);
+            Grid srcLine = new Grid();
+            srcLine.Children.Add(musicSrc);
+            srcLine.Children.Add(musicVol);
+            info.Children.Add(srcLine);
+            info.Children.Add(musicTitle);
+            info.Children.Add(musicArtist);
+            Grid.SetColumn(info, 1);
+            top.Children.Add(info);
+            col.Children.Add(top);
+
+            Grid bar = new Grid { Height = 6, Margin = new Thickness(0, 12, 0, 0) };
+            bar.Children.Add(new Border { CornerRadius = new CornerRadius(3), Background = MusicTrack });
+            musicFill = new Border { CornerRadius = new CornerRadius(3), Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
+            bar.Children.Add(musicFill);
+            col.Children.Add(bar);
+
+            Grid ctl = new Grid { Height = 34, Margin = new Thickness(0, 6, 0, 0) };
+            ctl.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            ctl.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            ctl.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            musicCur = new TextBlock { FontSize = 15, Foreground = MutedBrush, VerticalAlignment = VerticalAlignment.Center };
+            musicDur = new TextBlock { FontSize = 15, Foreground = MutedBrush, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
+            StackPanel buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            Shapes.Path dummy;
+            UIElement prev = FilledIcon("M6 6h2v12H6zM20 6v12L10 12z", 24, out dummy);
+            UIElement play = FilledIcon("M7 4v16l13-8z", 28, out musicPlayIcon);
+            UIElement next = FilledIcon("M16 6h2v12h-2zM4 6v12l10-6z", 24, out dummy);
+            ((FrameworkElement)play).Margin = new Thickness(22, 0, 22, 0);
+            musicShufBox = FilledIcon("M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z", 20, out musicShufPath);
+            musicRepBox = FilledIcon("M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z", 20, out musicRepPath);
+            ((FrameworkElement)musicShufBox).Margin = new Thickness(0, 0, 22, 0);
+            ((FrameworkElement)musicRepBox).Margin = new Thickness(22, 0, 0, 0);
+            musicShufBox.Visibility = Visibility.Collapsed;
+            musicRepBox.Visibility = Visibility.Collapsed;
+            buttons.Children.Add(musicShufBox);
+            buttons.Children.Add(prev);
+            buttons.Children.Add(play);
+            buttons.Children.Add(next);
+            buttons.Children.Add(musicRepBox);
+            Grid.SetColumn(musicCur, 0);
+            Grid.SetColumn(buttons, 1);
+            Grid.SetColumn(musicDur, 2);
+            ctl.Children.Add(musicCur);
+            ctl.Children.Add(buttons);
+            ctl.Children.Add(musicDur);
+            col.Children.Add(ctl);
+
+            // Logo de la app como marca de agua difuminada en la esquina superior derecha.
+            musicMark = new Image
+            {
+                Width = 150,
+                Height = 150,
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, -34, -34, 0),
+                Opacity = 0.30,
+                IsHitTestVisible = false,
+                Visibility = Visibility.Collapsed
+            };
+            LinearGradientBrush fade = new LinearGradientBrush(Color.FromArgb(255, 0, 0, 0), Color.FromArgb(0, 0, 0, 0), new Point(1, 0), new Point(0.15, 0.95));
+            fade.Freeze();
+            musicMark.OpacityMask = fade;
+            RenderOptions.SetBitmapScalingMode(musicMark, BitmapScalingMode.HighQuality);
+            Grid cardRoot = new Grid { Clip = new RectangleGeometry(new Rect(0, 0, PipW - 3, MusicH - 3), 18.5, 18.5) };
+            cardRoot.Children.Add(musicMark);
+            cardRoot.Children.Add(col);
+            musicCard.Child = cardRoot;
+            return musicCard;
+        }
+
+        private void OnMusicChanged()
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(UpdateMusic));
+            }
+            catch
+            {
+            }
+        }
+
+        private static string FormatTime(double sec)
+        {
+            TimeSpan t = TimeSpan.FromSeconds(Math.Max(0, sec));
+            return t.TotalHours >= 1
+                ? ((int)t.TotalHours) + ":" + t.Minutes.ToString("00") + ":" + t.Seconds.ToString("00")
+                : t.Minutes + ":" + t.Seconds.ToString("00");
+        }
+
+        private void UpdateMusic()
+        {
+            if (musicCard == null)
+            {
+                return;
+            }
+            MusicInfo m = MusicWatcher.Instance.Current;
+            musicCard.Visibility = m.HasSession && MusicRowLive() && !(recPanel != null && recPanel.Visibility == Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed;
+            if (!m.HasSession)
+            {
+                return;
+            }
+            musicSrc.Text = (m.Source ?? "").ToUpperInvariant();
+            musicVol.Visibility = musicVolOn && musicVolume >= 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (musicVolume >= 0)
+            {
+                musicVolFill.Width = 64 * Math.Max(0, Math.Min(1, musicVolume));
+            }
+            ImageSource appImg = null;
+            if (entries != null)
+            {
+                foreach (MenuEntry me in entries)
+                {
+                    if (me.MainMusic && me.Image != null)
+                    {
+                        appImg = me.Image;
+                        break;
+                    }
+                }
+            }
+            if (appImg != null)
+            {
+                musicMark.Source = appImg;
+                musicMark.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                musicMark.Visibility = Visibility.Collapsed;
+            }
+            ApplyMusicAccent();
+            musicTitle.Text = string.IsNullOrEmpty(m.Title) ? "-" : m.Title;
+            musicArtist.Text = m.Artist ?? "";
+            if (!ReferenceEquals(m.Art, musicArtShown))
+            {
+                musicArtShown = m.Art;
+                if (m.Art != null)
+                {
+                    ImageBrush ib = new ImageBrush(m.Art) { Stretch = Stretch.UniformToFill };
+                    ib.Freeze();
+                    musicArt.Background = ib;
+                    musicArtIcon.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    musicArt.Background = BadgeBrush;
+                    musicArtIcon.Visibility = Visibility.Visible;
+                }
+            }
+            musicPlayIcon.Data = m.Playing ? GeoPause : GeoPlay;
+            Brush accentNow = MusicAccentBrush();
+            musicShufBox.Visibility = m.CanShuffle ? Visibility.Visible : Visibility.Collapsed;
+            musicShufPath.Fill = m.Shuffle ? accentNow : MutedBrush;
+            musicRepBox.Visibility = m.CanRepeat ? Visibility.Visible : Visibility.Collapsed;
+            musicRepPath.Data = m.Repeat == 2 ? GeoRepeatOne : GeoRepeat;
+            musicRepPath.Fill = m.Repeat > 0 ? accentNow : MutedBrush;
+            UpdateMusicProgress();
+        }
+
+        // Una vez por segundo (junto al reloj): la posición se calcula sola, sin preguntar al reproductor.
+        private void UpdateMusicProgress()
+        {
+            if (musicCard == null || musicCard.Visibility != Visibility.Visible)
+            {
+                return;
+            }
+            MusicInfo m = MusicWatcher.Instance.Current;
+            double pos = m.PositionNow();
+            musicCur.Text = m.DurationSec > 0 ? FormatTime(pos) : "";
+            musicDur.Text = m.DurationSec > 0 ? FormatTime(m.DurationSec) : "";
+            musicFill.Width = m.DurationSec > 0 ? Math.Max(0, Math.Min(1, pos / m.DurationSec)) * (PipW - 28) : 0;
+        }
+
+        private bool MusicRowLive()
+        {
+            return entries != null && entries.Any(x => x.Glyph == "music" && !x.OpenOnly);
+        }
+
+        // Cambia la fila de música entre «Abrir música» y «Música» sin reconstruir el menú (sin parpadeo ni salto del cursor).
+        // Cambia el icono de la fila de música en el sitio (img null = vuelve a la nota).
+        private void SetRowImage(int i, ImageSource img, Color? accent)
+        {
+            try
+            {
+                if (i >= badges.Count || !(badges[i].Child is Viewbox))
+                {
+                    return;
+                }
+                Viewbox vb = (Viewbox)badges[i].Child;
+                entries[i].Image = img;
+                entries[i].AccentColor = accent;
+                if (img == null)
+                {
+                    // Nota de siempre: se crea de nuevo (reutilizar el elemento anterior da error de «ya tiene padre»).
+                    Shapes.Path np = MakeIcon(entries[i].Glyph);
+                    vb.Child = null;
+                    vb.Width = 32;
+                    vb.Height = 32;
+                    vb.Child = new Canvas { Width = 24, Height = 24, Children = { np } };
+                    if (i < icons.Count)
+                    {
+                        icons[i] = np;
+                    }
+                    entries[i].PlateBrush = null;
+                    badges[i].Clip = null;
+                    badges[i].Tag = ActionColor(entries[i].Glyph);
+                    return;
+                }
+                if (!AppIcon.IsFullBleed(img))
+                {
+                    Color? pc = AppIcon.PlateColor(img);
+                    SolidColorBrush pb = pc.HasValue ? new SolidColorBrush(pc.Value) : new SolidColorBrush(Color.FromRgb(0x1A, 0x1F, 0x2B));
+                    pb.Freeze();
+                    entries[i].PlateBrush = pb;
+                }
+                else
+                {
+                    entries[i].PlateBrush = Brushes.Transparent;
+                }
+                Image im = new Image { Source = img, Width = 56, Height = 56, Stretch = Stretch.Uniform };
+                RenderOptions.SetBitmapScalingMode(im, BitmapScalingMode.HighQuality);
+                vb.Child = null;
+                vb.Width = 56;
+                vb.Height = 56;
+                vb.Child = im;
+                badges[i].Clip = new RectangleGeometry(new Rect(0, 0, 56, 56), 16, 16);
+                if (accent.HasValue)
+                {
+                    SolidColorBrush ab = new SolidColorBrush(accent.Value);
+                    ab.Freeze();
+                    badges[i].Tag = ab;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        public void SetMusicRow(bool live, string label, string desc, string right, ImageSource img = null, Color? accent = null, bool setImage = false)
+        {
+            if (entries == null || achMode || galMode)
+            {
+                return;
+            }
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (!entries[i].MainMusic)
+                {
+                    continue;
+                }
+                entries[i].OpenOnly = !live;
+                entries[i].Text = label;
+                entries[i].Desc = desc;
+                entries[i].Right = right;
+                if (setImage)
+                {
+                    SetRowImage(i, img, accent);
+                }
+                if (i < labels.Count)
+                {
+                    labels[i].Text = label;
+                }
+                if (i < descs.Count && descs[i] != null)
+                {
+                    descs[i].Text = PadText(desc ?? "");
+                }
+                if (i < rights.Count && rights[i] != null)
+                {
+                    rights[i].Text = right ?? "";
+                }
+                break;
+            }
+            UpdateMusic();
+            UpdateSelection();
+        }
+
+        // Acciones de música que resuelve el plugin sin cerrar el menú.
+        public Func<bool> OpenMusicInline;
+        // Sube o baja el volumen del reproductor (±0,05); el plugin responde con ShowMusicVolume.
+        public Action<float> MusicVolumeChange;
+        private float musicVolume = -1;
+        private bool musicVolOn, musicVolFlash;
+        private System.Windows.Threading.DispatcherTimer musicVolTimer;
+
+        public void ShowMusicVolume(float v)
+        {
+            if (v < 0)
+            {
+                return;
+            }
+            musicVolume = v;
+            if (musicVolFlash)
+            {
+                // Solo se muestra cuando el usuario lo toca, y se oculta solo a los pocos segundos.
+                musicVolFlash = false;
+                musicVolOn = true;
+                if (musicVolTimer == null)
+                {
+                    musicVolTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+                    musicVolTimer.Tick += (s2, e2) =>
+                    {
+                        musicVolTimer.Stop();
+                        musicVolOn = false;
+                        UpdateMusic();
+                    };
+                }
+                musicVolTimer.Stop();
+                musicVolTimer.Start();
+            }
+            UpdateMusic();
+        }
+        public Action CloseMusicInline;
+
+        private bool IsMusicRow()
+        {
+            return !achMode && !galMode && entries != null && selected >= 0 && selected < entries.Count && entries[selected].Glyph == "music" && !entries[selected].OpenOnly;
         }
 
         // Etiqueta redondeada para datos cortos (sesión, tiempo total...).
@@ -1031,15 +1838,16 @@ namespace ConsoleOverlay
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(420) });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            StackPanel left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            // Carátula, título, resumen y barra comparten el mismo eje: todo centrado en una columna de 360.
+            StackPanel left = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Width = 360, HorizontalAlignment = HorizontalAlignment.Left };
             if (cover != null)
             {
-                Image img = new Image { Source = cover, Stretch = Stretch.Uniform, MaxWidth = 360, MaxHeight = 440, HorizontalAlignment = HorizontalAlignment.Left };
+                Image img = new Image { Source = cover, Stretch = Stretch.Uniform, MaxWidth = 360, MaxHeight = 440, HorizontalAlignment = HorizontalAlignment.Center };
                 RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
                 left.Children.Add(new Border
                 {
                     CornerRadius = new CornerRadius(14),
-                    HorizontalAlignment = HorizontalAlignment.Left,
+                    HorizontalAlignment = HorizontalAlignment.Center,
                     Child = img,
                     Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 40, ShadowDepth = 8, Opacity = 0.6, Color = Colors.Black }
                 });
@@ -1051,11 +1859,22 @@ namespace ConsoleOverlay
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Brushes.White,
                 TextWrapping = TextWrapping.Wrap,
-                MaxWidth = 380,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(0),
                 Margin = new Thickness(0, 22, 0, 8)
             });
-            left.Children.Add(new TextBlock { Text = summary, FontSize = 22, Foreground = TextBrush, Margin = new Thickness(0, 0, 0, 12) });
-            Grid track = new Grid { Width = 360, Height = 10, HorizontalAlignment = HorizontalAlignment.Left };
+            left.Children.Add(new TextBlock
+            {
+                Text = summary,
+                FontSize = 22,
+                Foreground = TextBrush,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+            Grid track = new Grid { Width = 360, Height = 10, HorizontalAlignment = HorizontalAlignment.Center };
             track.Children.Add(new Border { Background = PillBrush, CornerRadius = new CornerRadius(5) });
             double f = Math.Max(0, Math.Min(1, fraction));
             track.Children.Add(new Border
@@ -1091,6 +1910,35 @@ namespace ConsoleOverlay
             };
             Grid achHead = new Grid();
             achHead.Children.Add(achTabs);
+            // Trofeos conseguidos por tipo (platino, oro, plata, bronce).
+            int[] got = new int[4];
+            foreach (AchievementItem x in achAll ?? new List<AchievementItem>())
+            {
+                if (x.Unlocked)
+                {
+                    got[TrophyTier(x)]++;
+                }
+            }
+            StackPanel counts = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 120, 6)
+            };
+            for (int t = 3; t >= 0; t--)
+            {
+                counts.Children.Add(TrophyIcon(t, true, false, 30));
+                counts.Children.Add(new TextBlock
+                {
+                    Text = got[t].ToString(),
+                    FontSize = 22,
+                    Foreground = TextBrush,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(4, 0, 16, 0)
+                });
+            }
+            achHead.Children.Add(counts);
             achHead.Children.Add(achPos);
             Grid.SetRow(achHead, 0);
             right.Children.Add(achHead);
@@ -1413,6 +2261,26 @@ namespace ConsoleOverlay
         }
 
         // ---------------- Visor (imagen o clip a pantalla completa) ----------------
+
+        // Sustituye {A} {X} {Y} {L1} {R1} {L2} {R2} {R3} por los nombres de botón del estilo elegido (Xbox, PlayStation o Nintendo).
+        private string PadText(string t)
+        {
+            if (string.IsNullOrEmpty(t) || t.IndexOf('{') < 0)
+            {
+                return t;
+            }
+            string a = "A", x = "X", y = "Y", l1 = "LB", r1 = "RB", l2 = "LT", r2 = "RT", r3 = "RS";
+            if (string.Equals(buttonStyle, "PlayStation", StringComparison.OrdinalIgnoreCase))
+            {
+                a = "✕"; x = "□"; y = "△"; l1 = "L1"; r1 = "R1"; l2 = "L2"; r2 = "R2"; r3 = "R3";
+            }
+            else if (string.Equals(buttonStyle, "Nintendo", StringComparison.OrdinalIgnoreCase))
+            {
+                a = "B"; x = "Y"; y = "X"; l1 = "L"; r1 = "R"; l2 = "ZL"; r2 = "ZR"; r3 = "R3";
+            }
+            return t.Replace("{A}", a).Replace("{X}", x).Replace("{Y}", y).Replace("{L1}", l1).Replace("{R1}", r1)
+                    .Replace("{L2}", l2).Replace("{R2}", r2).Replace("{R3}", r3);
+        }
 
         private void ButtonLabels(out string accept, out string back)
         {
@@ -1980,20 +2848,26 @@ namespace ConsoleOverlay
         private UIElement BuildAchRow(AchievementItem a, bool sel)
         {
             bool secret = a.Hidden && !a.Unlocked;
+            // Logro conseguido y seleccionado: fila blanca con tinte crema, borde dorado y una pasada de luz al llegar.
+            bool gold = sel && a.Unlocked && !secret;
             Brush main = sel ? SelTextBrush : TextBrush;
-            Brush muted = sel ? Make("#4A5168") : MutedBrush;
+            Brush muted = gold ? GoldMuted : (sel ? Make("#4A5168") : MutedBrush);
 
             Border b = new Border
             {
                 CornerRadius = new CornerRadius(16),
-                Padding = new Thickness(14),
+                Padding = gold ? new Thickness(12) : new Thickness(14),
+                BorderThickness = gold ? new Thickness(2) : new Thickness(0),
+                BorderBrush = gold ? GoldEdge : null,
                 Margin = new Thickness(0, 0, 0, 10),
-                Background = sel ? SelBrush : RowBrush,
+                Background = gold ? GoldRow : (sel ? SelBrush : RowBrush),
                 Height = 114
             };
             Grid g = new Grid();
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             ImageSource icon = secret ? null : LoadIcon(a.IconPath);
@@ -2012,13 +2886,13 @@ namespace ConsoleOverlay
             else
             {
                 Shapes.Path p = MakeIcon(secret ? "lock" : "trophy");
-                p.Stroke = sel ? SelTextBrush : MutedBrush;
+                p.Stroke = gold ? Brushes.White : (sel ? SelTextBrush : MutedBrush);
                 iconEl = new Border
                 {
                     Width = 86,
                     Height = 86,
                     CornerRadius = new CornerRadius(14),
-                    Background = sel ? BadgeSelBrush : BadgeBrush,
+                    Background = gold ? GoldBadge : (sel ? BadgeSelBrush : BadgeBrush),
                     Child = new Viewbox
                     {
                         Width = 40,
@@ -2058,13 +2932,16 @@ namespace ConsoleOverlay
             {
                 extra = a.UnlockTime.HasValue ? Loc.T("Conseguido el {0}", a.UnlockTime.Value.ToShortDateString()) : Loc.T("Conseguido");
             }
-            else if (!secret && a.ProgressDenom.HasValue && a.ProgressDenom.Value > 0)
-            {
-                extra = Loc.T("Progreso {0} / {1}", a.ProgressNum ?? 0, a.ProgressDenom.Value);
-            }
             if (extra != null)
             {
-                text.Children.Add(new TextBlock { Text = extra, FontSize = 16, Foreground = muted, Margin = new Thickness(0, 2, 0, 0) });
+                text.Children.Add(new TextBlock
+                {
+                    Text = extra,
+                    FontSize = 16,
+                    Foreground = gold ? GoldText : muted,
+                    FontWeight = gold ? FontWeights.SemiBold : FontWeights.Normal,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
             }
             Grid.SetColumn(text, 1);
             g.Children.Add(text);
@@ -2079,7 +2956,9 @@ namespace ConsoleOverlay
                     Text = a.Percent.Value.ToString("0.#") + " %",
                     FontSize = 26,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = veryRare ? (sel ? Make("#B26A00") : Make("#FFC857")) : (rare ? (sel ? Make("#3B6AA8") : Make("#9FD3FF")) : main),
+                    // Mismo color que el trofeo del logro (bronce, plata, oro o platino).
+                    Foreground = Make(sel ? TierDark[TrophyTier(a)] : TierText[TrophyTier(a)]),
+                    Opacity = a.Unlocked ? 1.0 : 0.85,
                     HorizontalAlignment = HorizontalAlignment.Right
                 });
                 rarity.Children.Add(new TextBlock
@@ -2092,8 +2971,179 @@ namespace ConsoleOverlay
                 Grid.SetColumn(rarity, 2);
                 g.Children.Add(rarity);
             }
+            // Barra de progreso (logros por etapas, p. ej. 210 / 666) a la derecha, con el número debajo.
+            if (!secret && !a.Unlocked && a.ProgressDenom.HasValue && a.ProgressDenom.Value > 0)
+            {
+                double frac = Math.Max(0, Math.Min(1, (double)(a.ProgressNum ?? 0) / a.ProgressDenom.Value));
+                StackPanel prog = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 18, 0), Width = 220 };
+                Grid bar = new Grid { Height = 9 };
+                bar.Children.Add(new Border { Background = sel ? Make("#22000000") : Make("#33FFFFFF"), CornerRadius = new CornerRadius(4.5) });
+                if (frac > 0)
+                {
+                    bar.Children.Add(new Border
+                    {
+                        Background = Make("#E6A82B"),
+                        CornerRadius = new CornerRadius(4.5),
+                        Width = Math.Max(9, 220 * frac),
+                        HorizontalAlignment = HorizontalAlignment.Left
+                    });
+                }
+                prog.Children.Add(bar);
+                prog.Children.Add(new TextBlock
+                {
+                    Text = (a.ProgressNum ?? 0) + " / " + a.ProgressDenom.Value,
+                    FontSize = 17,
+                    Foreground = muted,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 5, 0, 0)
+                });
+                Grid.SetColumn(prog, 3);
+                g.Children.Add(prog);
+            }
+
+            // Trofeo según lo raro que sea el logro: color si está conseguido, gris apagado si no.
+            UIElement trophy = TrophyIcon(TrophyTier(a), a.Unlocked && !secret, sel, 46);
+            trophy.Opacity = a.Unlocked || secret ? 1 : 0.4;
+            Grid.SetColumn(trophy, 4);
+            g.Children.Add(trophy);
             b.Child = g;
             return b;
+        }
+
+        // Tipo de trofeo: 0 bronce, 1 plata, 2 oro, 3 platino. Se usa el del plugin de logros; si no lo trae,
+        // estos umbrales del % global de jugadores.
+        // Mismos límites que usa el plugin de logros: ultra raro hasta 5 %, raro hasta 20 %, poco común hasta 50 %.
+        private const double SilverBelow = 50, GoldBelow = 20, PlatinumBelow = 5;
+
+        internal static int TrophyTier(AchievementItem a)
+        {
+            // El tipo de trofeo lo define el plugin de logros para cada juego; el % solo se usa si no hay dato.
+            if (a.Trophy.HasValue)
+            {
+                return Math.Max(0, Math.Min(3, a.Trophy.Value));
+            }
+            if (!a.Percent.HasValue)
+            {
+                return 0;
+            }
+            double p = a.Percent.Value;
+            return p <= PlatinumBelow ? 3 : (p <= GoldBelow ? 2 : (p <= SilverBelow ? 1 : 0));
+        }
+
+        private static readonly string[] TierColor = { "#D98A3D", "#C5CEDB", "#FFC83D", "#8FD3FF" };
+        private static readonly string[] TierColorSel = { "#B8651B", "#8A97A8", "#D9A000", "#3B9BD6" };
+
+        // Copa rellena con degradado del color del nivel (bronce, plata, oro, platino). Pinceles congelados, se crean una vez.
+        private static readonly string[] TierLight = { "#E8A25F", "#D3DAE6", "#FFD95A", "#9ADCFF" };
+        private static readonly string[] TierText = { "#F0A560", "#D3DAE6", "#FFD95A", "#7FD0FF" };
+        private static readonly string[] TierDark = { "#B8651B", "#8A97A8", "#D9A000", "#3B9BD6" };
+        private static readonly Brush[] TierFill = MakeTierFills();
+
+        private static Brush[] MakeTierFills()
+        {
+            Brush[] r = new Brush[4];
+            for (int i = 0; i < 4; i++)
+            {
+                r[i] = MakeVertical(TierLight[i], TierDark[i]);
+            }
+            return r;
+        }
+
+        private UIElement TrophyIcon(int tier, bool colored, bool sel, double size)
+        {
+            Brush fill = colored ? TierFill[tier] : (sel ? Make("#B3BAC8") : MutedBrush);
+            Brush dark = colored ? Make(TierDark[tier]) : (sel ? Make("#8A93A6") : MutedBrush);
+            Shapes.Path body = new Shapes.Path { Fill = fill, Data = Geometry.Parse("M14 6H34V18A10 10 0 0 1 14 18Z") };
+            Shapes.Path handles = new Shapes.Path
+            {
+                Stroke = dark,
+                StrokeThickness = 3,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                Data = Geometry.Parse("M14 9H8V12A7 7 0 0 0 15 19M34 9H40V12A7 7 0 0 1 33 19")
+            };
+            Shapes.Path stem = new Shapes.Path { Fill = dark, Data = Geometry.Parse("M21.5 27H26.5V35H21.5Z") };
+            Shapes.Path baseP = new Shapes.Path { Fill = fill, Data = Geometry.Parse("M17 35H31A2 2 0 0 1 33 37V39A2 2 0 0 1 31 41H17A2 2 0 0 1 15 39V37A2 2 0 0 1 17 35Z") };
+            Shapes.Path shine = new Shapes.Path
+            {
+                Stroke = Brushes.White,
+                Opacity = colored ? 0.55 : 0.3,
+                StrokeThickness = 2.5,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                Data = Geometry.Parse("M19 9V17")
+            };
+            return new Viewbox
+            {
+                Width = size,
+                Height = size,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new Canvas { Width = 48, Height = 48, Children = { handles, body, stem, baseP, shine } }
+            };
+        }
+
+        // Pasos del dorado de los logros conseguidos (pinceles congelados, se crean una vez).
+        private static readonly Brush GoldEdge = Make("#F0C24F");
+        private static readonly Brush GoldText = Make("#9A6A0A");
+        private static readonly Brush GoldMuted = Make("#6B5A2A");
+        private static readonly Brush GoldRow = MakeVertical("#FFFDF6", "#F6ECD2");
+        private static readonly Brush GoldBadge = MakeDiagonal("#FFD76A", "#D99A1C");
+        private static readonly Brush GoldStreak = MakeStreak();
+
+        private static Brush MakeVertical(string top, string bottom)
+        {
+            LinearGradientBrush g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(top), 0));
+            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(bottom), 1));
+            g.Freeze();
+            return g;
+        }
+
+        private static Brush MakeDiagonal(string a, string b)
+        {
+            LinearGradientBrush g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(a), 0));
+            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(b), 1));
+            g.Freeze();
+            return g;
+        }
+
+        private static Brush MakeStreak()
+        {
+            LinearGradientBrush g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+            g.GradientStops.Add(new GradientStop(Color.FromArgb(0, 255, 196, 64), 0.0));
+            g.GradientStops.Add(new GradientStop(Color.FromArgb(150, 255, 196, 64), 0.5));
+            g.GradientStops.Add(new GradientStop(Color.FromArgb(0, 255, 196, 64), 1.0));
+            g.Freeze();
+            return g;
+        }
+
+        // Una franja de luz dorada que cruza la fila una sola vez (unos 0,6 s). Sin animaciones continuas.
+        private UIElement BuildGoldSweep()
+        {
+            TranslateTransform move = new TranslateTransform(-220, 0);
+            TransformGroup tg = new TransformGroup();
+            tg.Children.Add(new SkewTransform(-20, 0));
+            tg.Children.Add(move);
+            Border streak = new Border
+            {
+                Width = 160,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Background = GoldStreak,
+                RenderTransform = tg,
+                IsHitTestVisible = false
+            };
+            Grid.SetColumnSpan(streak, 3);
+            if (UiFeedback.Animations)
+            {
+                move.BeginAnimation(TranslateTransform.XProperty,
+                    new DoubleAnimation(-220, 1500, TimeSpan.FromMilliseconds(650)) { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } });
+            }
+            else
+            {
+                streak.Visibility = Visibility.Collapsed;
+            }
+            return streak;
         }
 
         // Color de cada tipo de acción (boceto A2).
@@ -2110,6 +3160,12 @@ namespace ConsoleOverlay
                 case "lock": return Make("#64748B");
                 case "circle-x": return Make("#EF4444");
                 case "power": return Make("#EC4899");
+                case "music": return Make("#22C55E");
+                case "check": return Make("#22C55E");
+                case "x": return Make("#EF4444");
+                case "arrow-left": return Make("#64748B");
+                case "moon": return Make("#6366F1");
+                case "refresh-cw": return Make("#F59E0B");
                 default: return null;
             }
         }
@@ -2123,7 +3179,7 @@ namespace ConsoleOverlay
                 Padding = new Thickness(14, 8, 22, 8),
                 Margin = new Thickness(0, 0, 0, 12),
                 BorderThickness = new Thickness(1),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)),
+                BorderBrush = GlassEdge,
                 Cursor = Cursors.Hand,
                 Height = 84,
                 RenderTransformOrigin = new Point(0, 0.5),
@@ -2142,14 +3198,47 @@ namespace ConsoleOverlay
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = new Canvas { Width = 24, Height = 24, Children = { icon } }
             };
+            bool fullBleed = false;
+            if (e.Image != null)
+            {
+                // El logo llena toda la insignia (esquinas redondeadas). Si no trae cuadrado propio, la base toma su color.
+                fullBleed = true;
+                if (!AppIcon.IsFullBleed(e.Image))
+                {
+                    Color? pc = AppIcon.PlateColor(e.Image);
+                    SolidColorBrush pb = pc.HasValue ? new SolidColorBrush(pc.Value) : new SolidColorBrush(Color.FromRgb(0x1A, 0x1F, 0x2B));
+                    pb.Freeze();
+                    e.PlateBrush = pb;
+                }
+                else
+                {
+                    e.PlateBrush = Brushes.Transparent;
+                }
+                Image appIcon = new Image { Source = e.Image, Width = 56, Height = 56, Stretch = Stretch.Uniform };
+                RenderOptions.SetBitmapScalingMode(appIcon, BitmapScalingMode.HighQuality);
+                iconBox.Width = 56;
+                iconBox.Height = 56;
+                iconBox.Child = appIcon;
+            }
+            if (e.Platinum)
+            {
+                iconBox.Width = 48;
+                iconBox.Height = 48;
+                iconBox.Child = TrophyIcon(3, true, false, 48);
+            }
             Border badge = new Border
             {
                 Width = 56,
                 Height = 56,
                 CornerRadius = new CornerRadius(16),
                 HorizontalAlignment = HorizontalAlignment.Left,
+                ClipToBounds = fullBleed,
                 Child = iconBox
             };
+            if (fullBleed)
+            {
+                badge.Clip = new RectangleGeometry(new Rect(0, 0, 56, 56), 16, 16);
+            }
             TextBlock label = new TextBlock
             {
                 FontSize = 27,
@@ -2158,8 +3247,8 @@ namespace ConsoleOverlay
             label.Text = e.Text ?? "";
             TextBlock descBlock = new TextBlock
             {
-                Text = e.Desc ?? "",
-                FontSize = 19,
+                Text = PadText(e.Desc ?? ""),
+                FontSize = e.MainMusic && !e.OpenOnly ? 16 : 19,
                 Foreground = MutedBrush,
                 Visibility = Visibility.Collapsed,
                 TextTrimming = TextTrimming.CharacterEllipsis,
@@ -2172,7 +3261,17 @@ namespace ConsoleOverlay
             Grid.SetColumn(badge, 0);
             Grid.SetColumn(textPanel, 1);
             Brush accent = ActionColor(e.Glyph);
-            badge.Background = accent ?? BadgeBrush;
+            if (e.Platinum && !e.AccentColor.HasValue)
+            {
+                e.AccentColor = (Color)ColorConverter.ConvertFromString("#5BB8EE");
+            }
+            if (e.AccentColor.HasValue)
+            {
+                SolidColorBrush ab = new SolidColorBrush(e.AccentColor.Value);
+                ab.Freeze();
+                accent = ab;
+            }
+            badge.Background = accent != null ? BadgeGradient(accent) : BadgeBrush;
             badge.Tag = accent;
             // Franja de color en el borde izquierdo de la fila: sigue la curva de las esquinas (como en el boceto)
             // y solo se ve en la opción activa. Cubre el relleno de la fila con márgenes negativos.
@@ -2180,7 +3279,7 @@ namespace ConsoleOverlay
             {
                 CornerRadius = new CornerRadius(20),
                 BorderThickness = new Thickness(6, 0, 0, 0),
-                BorderBrush = accent ?? SelTextBrush,
+                BorderBrush = accent != null ? BarWhite : SelTextBrush,
                 Margin = new Thickness(-15, -9, -23, -9),
                 Opacity = 0,
                 IsHitTestVisible = false
@@ -2549,14 +3648,17 @@ namespace ConsoleOverlay
             for (int i = 0; i < rows.Count; i++)
             {
                 bool sel = i == selected;
-                rows[i].Background = sel ? SelBrush : RowBrush;
-                // Las opciones con color conservan su color también cuando están seleccionadas.
-                badges[i].Background = (badges[i].Tag as Brush) ?? (sel ? BadgeSelBrush : BadgeBrush);
-                icons[i].Stroke = badges[i].Tag != null ? Brushes.White : (sel ? SelTextBrush : (entries[i].Danger ? DangerBrush : TextBrush));
-                labels[i].Foreground = sel ? SelTextBrush : TextBrush;
+                Brush tag = badges[i].Tag as Brush;
+                bool colored = tag != null;
+                // Con color: fila de cristal teñida del color de la acción y texto blanco. Sin color: tarjeta clara de siempre.
+                rows[i].Background = sel ? (colored ? SelGradient(tag) : SelBrush) : RowBrush;
+                badges[i].Background = entries[i].Image != null ? (entries[i].PlateBrush ?? AppBadgeBrush) : (colored ? BadgeGradient(tag) : (sel ? BadgeSelBrush : BadgeBrush));
+                icons[i].Stroke = colored ? Brushes.White : (sel ? SelTextBrush : (entries[i].Danger ? DangerBrush : TextBrush));
+                labels[i].Foreground = sel ? (colored ? Brushes.White : SelTextBrush) : TextBrush;
                 if (i < descs.Count && descs[i] != null)
                 {
                     descs[i].Visibility = sel ? Visibility.Visible : Visibility.Collapsed;
+                    descs[i].Foreground = colored ? SelDescBrush : MutedBrush;
                 }
                 if (i < accents.Count && accents[i] != null)
                 {
@@ -2564,9 +3666,14 @@ namespace ConsoleOverlay
                 }
                 if (rights[i] != null)
                 {
-                    rights[i].Foreground = sel ? SelTextBrush : MutedBrush;
+                    rights[i].Foreground = sel ? (colored ? Brushes.White : SelTextBrush) : MutedBrush;
                 }
             }
+            if (musicCard != null)
+            {
+                musicCard.BorderBrush = IsMusicRow() ? MusicAccentBrush() : GlassEdge;
+            }
+            UpdateRecents();
         }
 
         private void RefreshTexts()
@@ -2576,6 +3683,7 @@ namespace ConsoleOverlay
                 clockText.Text = DateTime.Now.ToShortTimeString();
             }
             UpdateClipClock();
+            UpdateMusicProgress();
             Func<List<BatteryInfo>> bp = BatteryProvider;
             if (bp != null && !batteryBusy && refreshTicks++ % 3 == 0)
             {
@@ -2644,6 +3752,29 @@ namespace ConsoleOverlay
                 case "B":
                     Act("mando", "cancel");
                     break;
+                case "X":
+                    Act("mando", "close");
+                    break;
+                case "Y":
+                    Act("mando", "shuffle");
+                    break;
+                case "RightStick":
+                    Act("mando", "repeat");
+                    break;
+                case "TriggerRight":
+                case "RightStickUp":
+                    Act("mando", "volup");
+                    break;
+                case "TriggerLeft":
+                case "RightStickDown":
+                    Act("mando", "voldown");
+                    break;
+                case "RightShoulder":
+                    Act("mando", "skipnext");
+                    break;
+                case "LeftShoulder":
+                    Act("mando", "skipprev");
+                    break;
             }
         }
 
@@ -2684,18 +3815,27 @@ namespace ConsoleOverlay
             switch (action)
             {
                 case "up":
-                    if (galMode) { if (viewing) ViewStep(-1); else MoveGrid(-GalCols); } else { Move(-1); }
+                    if (galMode) { if (viewing) ViewStep(-1); else MoveGrid(-GalCols); } else { recFocus = -1; Move(-1); }
                     break;
                 case "down":
-                    if (galMode) { if (viewing) ViewStep(1); else MoveGrid(GalCols); } else { Move(1); }
+                    if (galMode) { if (viewing) ViewStep(1); else MoveGrid(GalCols); } else { recFocus = -1; Move(1); }
                     break;
                 case "left":
                     if (galMode) { if (viewing) ViewSeek(-1); else MoveGrid(-1); }
                     else if (achMode) { CycleAchFilter(-1); }
+                    else if (recFocus >= 0) { recFocus = recFocus == 0 ? -1 : recFocus - 1; UpdateRecents(); }
+                    else if (IsMusicRow()) { MusicWatcher.Instance.Seek(-10); }
                     break;
                 case "right":
                     if (galMode) { if (viewing) ViewSeek(1); else MoveGrid(1); }
                     else if (achMode) { CycleAchFilter(1); }
+                    else if (recPanel != null && (recFocus >= 0 || IsEndRow()))
+                    {
+                        // «Finalizar juego» + derecha entra en el panel; dentro, derecha avanza entre los pósters.
+                        recFocus = recFocus < 0 ? 0 : Math.Min(Recents.Count - 1, recFocus + 1);
+                        UpdateRecents();
+                    }
+                    else if (IsMusicRow()) { MusicWatcher.Instance.Seek(10); }
                     break;
                 case "accept":
                     if (galMode)
@@ -2705,6 +3845,41 @@ namespace ConsoleOverlay
                     else
                     {
                         Accept();
+                    }
+                    break;
+                case "volup":
+                case "voldown":
+                    if (!galMode && !achMode && MusicRowLive() && MusicWatcher.Instance.Current.HasSession && MusicVolumeChange != null)
+                    {
+                        musicVolFlash = true;
+                        MusicVolumeChange(action == "volup" ? 0.05f : -0.05f);
+                    }
+                    break;
+                case "skipnext":
+                case "skipprev":
+                    if (achMode)
+                    {
+                        // En logros, L1 / R1 cambian de pestaña (Todos, Conseguidos, Pendientes).
+                        CycleAchFilter(action == "skipnext" ? 1 : -1);
+                        break;
+                    }
+                    // R1 / L1: siguiente o anterior desde cualquier fila mientras la tarjeta de música está a la vista.
+                    if (!galMode && !achMode && MusicRowLive() && MusicWatcher.Instance.Current.HasSession)
+                    {
+                        if (action == "skipnext") MusicWatcher.Instance.Next(); else MusicWatcher.Instance.Previous();
+                    }
+                    break;
+                case "shuffle":
+                case "repeat":
+                    if (!galMode && !achMode && MusicRowLive() && MusicWatcher.Instance.Current.HasSession)
+                    {
+                        if (action == "shuffle") MusicWatcher.Instance.ToggleShuffle(); else MusicWatcher.Instance.CycleRepeat();
+                    }
+                    break;
+                case "close":
+                    if (IsMusicRow() && CloseMusicInline != null)
+                    {
+                        CloseMusicInline();
                     }
                     break;
                 case "cancel":
@@ -2731,10 +3906,30 @@ namespace ConsoleOverlay
             UpdateSelection();
         }
 
+        // Momento en que se mostró la página actual (para ignorar pulsaciones que llegan justo después).
+        public DateTime ShownAtUtc { get { return shownAt; } }
+
         public void Accept()
         {
             if (achMode)
             {
+                return;
+            }
+            if (recFocus >= 0 && Recents != null && recFocus < Recents.Count)
+            {
+                // Elegido un juego reciente: el índice va después de las filas del menú.
+                Choose(entries.Count + recFocus);
+                return;
+            }
+            if (!achMode && !galMode && selected >= 0 && selected < entries.Count && entries[selected].Glyph == "music" &&
+                entries[selected].OpenOnly && OpenMusicInline != null && OpenMusicInline())
+            {
+                return;
+            }
+            if (IsMusicRow())
+            {
+                // Pausa o reanuda la música sin cerrar el menú.
+                MusicWatcher.Instance.PlayPause();
                 return;
             }
             Choose(selected);
@@ -2742,6 +3937,13 @@ namespace ConsoleOverlay
 
         public void Cancel()
         {
+            if (recFocus >= 0)
+            {
+                // Dentro del panel «Cambiar a», atrás solo sale del panel.
+                recFocus = -1;
+                UpdateRecents();
+                return;
+            }
             Choose(cancelIndex);
         }
 
@@ -2780,6 +3982,28 @@ namespace ConsoleOverlay
                 case Key.Enter:
                 case Key.Space:
                     Act("teclado", "accept");
+                    e.Handled = true;
+                    break;
+                case Key.OemPlus:
+                case Key.Add:
+                    Act("teclado", "volup");
+                    e.Handled = true;
+                    break;
+                case Key.OemMinus:
+                case Key.Subtract:
+                    Act("teclado", "voldown");
+                    e.Handled = true;
+                    break;
+                case Key.X:
+                    Act("teclado", "close");
+                    e.Handled = true;
+                    break;
+                case Key.S:
+                    Act("teclado", "shuffle");
+                    e.Handled = true;
+                    break;
+                case Key.R:
+                    Act("teclado", "repeat");
                     e.Handled = true;
                     break;
                 case Key.Escape:

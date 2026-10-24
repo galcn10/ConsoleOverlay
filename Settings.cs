@@ -34,6 +34,12 @@ namespace ConsoleOverlay
         private bool showLivePreview = true;
         private bool powerMenuOutsideGame = false;
         private int elevatedMode = 0;
+        private bool pauseGame = true;
+        private bool showMusic = true;
+        private bool showRecents = true;
+        private bool skipEmulatedGames = false;
+        private string musicPlayer = "";
+        private string musicApps = "";
         private bool noPauseAntiCheat = true;
         private bool autoRemoveAdmin = false;
         private string captureFolders = "";
@@ -67,6 +73,25 @@ namespace ConsoleOverlay
         // Colores del fondo del menú: "theme" (los del tema de Playnite), "game" (los de la carátula) o "neutral".
         public string MenuColors { get => menuColors; set => SetValue(ref menuColors, string.IsNullOrEmpty(value) ? "theme" : value); }
 
+        // Tipografía del menú: "theme" (la del tema de Playnite), "system" (Segoe UI), "inter" o "nunito" (incluidas con el plugin).
+        public string MenuFont { get => menuFont; set => SetValue(ref menuFont, string.IsNullOrEmpty(value) ? "theme" : value); }
+        private string menuFont = "theme";
+
+        [DontSerialize]
+        public List<LangOption> MenuFontOptions
+        {
+            get
+            {
+                return new List<LangOption>
+                {
+                    new LangOption { Code = "theme", Name = Loc.T("Tema de Playnite") },
+                    new LangOption { Code = "system", Name = "Segoe UI" },
+                    new LangOption { Code = "inter", Name = "Inter" },
+                    new LangOption { Code = "nunito", Name = "Nunito" }
+                };
+            }
+        }
+
         [DontSerialize]
         public List<LangOption> MenuColorOptions
         {
@@ -97,6 +122,21 @@ namespace ConsoleOverlay
         public string CaptureFolders { get => captureFolders; set => SetValue(ref captureFolders, value); }
         // Juegos que se ejecutan como administrador (no se pueden pausar ni pasar el foco desde un Playnite normal):
         // 0 = abrir el menú encima del juego sin pausarlo, 1 = solo avisar en pantalla.
+        // false = el menú se abre encima del juego sin pausarlo (en ningún juego).
+        // Muestra la música que suena (reproductor del sistema) en el menú. MusicPlayer: nombre (o parte) del reproductor preferido.
+        // true = no abrir el menú en juegos que Playnite lanza con un emulador (RetroArch, PCSX2, DuckStation... ya tienen el suyo).
+        public bool SkipEmulatedGames { get => skipEmulatedGames; set => SetValue(ref skipEmulatedGames, value); }
+        // Panel «Cambiar a» (los 3 últimos juegos) al seleccionar «Finalizar juego».
+        public bool ShowRecents { get => showRecents; set => SetValue(ref showRecents, value); }
+        public bool ShowMusic { get => showMusic; set => SetValue(ref showMusic, value); }
+        // Reproductores que se pueden abrir desde el menú cuando no suena nada. Una línea por reproductor: Nombre|ruta o enlace (spotify:).
+        public string MusicApps { get => musicApps; set => SetValue(ref musicApps, value ?? ""); }
+
+        // Reproductores de la Tienda que el plugin ha visto sonando ("Nombre|shell:AppsFolder\id" por línea).
+        public string LearnedMusicApps { get => learnedMusicApps; set => SetValue(ref learnedMusicApps, value ?? ""); }
+        private string learnedMusicApps = "";
+        public string MusicPlayer { get => musicPlayer; set => SetValue(ref musicPlayer, value ?? ""); }
+        public bool PauseGame { get => pauseGame; set => SetValue(ref pauseGame, value); }
         public bool NoPauseAntiCheat { get => noPauseAntiCheat; set => SetValue(ref noPauseAntiCheat, value); }
         public bool AutoRemoveAdmin { get => autoRemoveAdmin; set => SetValue(ref autoRemoveAdmin, value); }
         public int ElevatedMode { get => elevatedMode; set => SetValue(ref elevatedMode, value < 0 || value > 1 ? 0 : value); }
@@ -231,6 +271,13 @@ namespace ConsoleOverlay
             ShowLivePreview = o.ShowLivePreview;
             PowerMenuOutsideGame = o.PowerMenuOutsideGame;
             ElevatedMode = o.ElevatedMode;
+            PauseGame = o.PauseGame;
+            ShowMusic = o.ShowMusic;
+            ShowRecents = o.ShowRecents;
+            SkipEmulatedGames = o.SkipEmulatedGames;
+            MusicPlayer = o.MusicPlayer ?? "";
+            MusicApps = o.MusicApps ?? "";
+            LearnedMusicApps = o.LearnedMusicApps ?? "";
             NoPauseAntiCheat = o.NoPauseAntiCheat;
             AutoRemoveAdmin = o.AutoRemoveAdmin;
             CaptureFolders = o.CaptureFolders ?? "";
@@ -248,6 +295,7 @@ namespace ConsoleOverlay
             ButtonStyle = string.IsNullOrEmpty(o.ButtonStyle) ? "Auto" : o.ButtonStyle;
             Language = o.Language;
             MenuColors = o.MenuColors;
+            MenuFont = o.MenuFont;
             applying = true;
             try
             {

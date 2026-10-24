@@ -268,6 +268,36 @@ namespace ConsoleOverlay
             }
         }
 
+        // Tipografía elegida en los ajustes: la del tema (null aquí = usar ThemeFont), Segoe UI o una de las incluidas en la carpeta fonts.
+        public static FontFamily ChosenFont(string mode, out string info)
+        {
+            info = null;
+            try
+            {
+                if (string.Equals(mode, "system", StringComparison.OrdinalIgnoreCase))
+                {
+                    info = "Segoe UI (ajuste)";
+                    return new FontFamily("Segoe UI");
+                }
+                if (string.Equals(mode, "inter", StringComparison.OrdinalIgnoreCase) || string.Equals(mode, "nunito", StringComparison.OrdinalIgnoreCase))
+                {
+                    string name = string.Equals(mode, "inter", StringComparison.OrdinalIgnoreCase) ? "Inter" : "Nunito";
+                    string dir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(Palette).Assembly.Location), "fonts");
+                    if (System.IO.File.Exists(System.IO.Path.Combine(dir, name + "-Regular.ttf")))
+                    {
+                        info = name + " incluida (ajuste)";
+                        return new FontFamily(new Uri(dir.TrimEnd('\\') + "\\"), "./#" + name);
+                    }
+                    info = "no se encontró la carpeta fonts; se usa la del tema";
+                }
+            }
+            catch (Exception ex)
+            {
+                info = "error: " + ex.Message;
+            }
+            return null;
+        }
+
         // Elige el color de acento según el ajuste: "theme" (tema y, si no hay, carátula), "game" (carátula y, si no, tema), "neutral".
         public static Color? Choose(string mode, ImageSource cover, ImageSource backdrop, out string info)
         {
