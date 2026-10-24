@@ -1,16 +1,15 @@
-
-
-
 # Console Overlay for Playnite
 
-A console-style overlay menu for [Playnite](https://playnite.link). Press the controller's Guide/PS button (or a keyboard shortcut) while you play: the game is paused, a menu appears over it, and you can go back to the game, take a screenshot, check your achievements, leave to Playnite, close the game or power off the PC — all from the couch, with a controller.
+A console-style overlay menu for [Playnite](https://playnite.link). Press the controller's Guide/PS button (or a keyboard shortcut) while you play: the game is paused, a menu appears over it, and you can go back to the game, take a screenshot, check your achievements, control your music, switch games, leave to Playnite, close the game or power off the PC — all from the couch, with a controller.
 
 > Español: [README.es.md](README.es.md)
 
 ![Main menu](docs/screenshots/menu.png)
+![Music card](docs/screenshots/music.png)
+![Achievements](docs/screenshots/achievements_2.png)
+![Switch to](docs/screenshots/changeto.png)
 ![Captures gallery](docs/screenshots/captures.png)
 ![Captures gallery_2](docs/screenshots/captures_2.png)
-![Achievements](docs/screenshots/achievements.png)
 ![Power menu](docs/screenshots/power.png)
 
 https://github.com/user-attachments/assets/9ddb563b-5aff-49cf-886e-8047f501044a
@@ -18,9 +17,13 @@ https://github.com/user-attachments/assets/9ddb563b-5aff-49cf-886e-8047f501044a
 ## Features
 
 - **Opens in-game only**, like a console. It does nothing on Playnite's home screen (unless you enable the power menu there).
-- **Pauses the game** while the menu is open and mutes only the game's audio. Games with anti-cheat (EasyAntiCheat, BattlEye, Vanguard...) are **not** paused, so you never lose an online match.
-- **Menu**: back to the game · screenshot · save clip · captures and clips gallery · achievements · go to Playnite (the game stays paused) · end game · power menu (suspend / restart / shut down).
-- **Looks native**: cover art from your library, live preview (last frame if the game is paused), session timer, clock, and controller battery for several controllers at once (DualSense, DualShock, Xbox, Switch Pro, 8BitDo and other SDL controllers).
+- **Pauses the game** while the menu is open and mutes only the game's audio. Games with anti-cheat (EasyAntiCheat, BattlEye, Vanguard...) are **not** paused, so you never lose an online match. You can also turn the pause off completely.
+- **Menu**: back to the game · screenshot · save clip · captures and clips gallery · achievements · music · switch game · go to Playnite (the game stays paused) · end game · power menu (suspend / restart / shut down).
+- **Music card**: shows what is playing (Spotify, SimpMusic, YouTube Music in the browser, VLC...) through Windows' media controls. Play/pause, skip, volume, shuffle and repeat from the controller, using the player's own icon and colour. If nothing is playing, the row becomes "Open music" and launches your player minimized, so you stay in the game. No account or network needed.
+- **Switch to**: with "End game" selected, pick one of your last 3 games; the current one closes and the new one opens behind a transition screen (optional).
+- **Achievements**: trophy by rarity (bronze, silver, gold, platinum), counters, progress bars, gold highlight for unlocked ones, and a platinum trophy on the main row when you have them all.
+- **Per-game control**: tags `NoPause` and `NoOverlay`, and an option to leave emulators (RetroArch, PCSX2, DuckStation...) alone.
+- **Looks native**: cover art from your library, live preview (last frame if the game is paused), session timer, clock, and controller battery for several controllers at once (DualSense, DualShock, Xbox, Switch Pro, 8BitDo and other SDL controllers), each one with its own colour and number.
 - **Follows your Playnite theme**: colors and font are read from the theme you use (or from the game's cover art), and the button icons follow the controller type configured in Playnite's fullscreen settings.
 - **Works with games run as administrator**: opens the menu without pausing and can remove the "run as administrator" flag if you ask it to.
 - **Capture programs**: it presses the keyboard shortcut of your capture tool (GameHQ, NVIDIA App, Steam, Xbox Game Bar...) and finds the files in the usual folders.
@@ -47,6 +50,7 @@ Clips can play inside the overlay using [mpv](https://mpv.io), a free video play
 - **Controller**: press the **Guide/PS button** (on by default) to open the menu or return to the game. Long press: power menu. If Steam or another program already uses that button, disable its action there, or turn on the alternative in *Open the menu*: hold **Select + Start** for 1 s (off by default). A notification explains this the first time.
 - **Keyboard / JoyToKey / Steam Input**: default shortcuts are `Ctrl+Alt+F10` (menu) and `Ctrl+Alt+F11` (end game). Map them to any button.
 - **Capture program**: pick yours in *Captures and clips* so the menu can trigger it.
+- **Music**: with a song playing, the music row shows the card (A pause · L1/R1 song · X close player). Add your own players in *Players to open*, one per line as `Name|path`.
 
 ## What the plugin does on your system
 
@@ -63,6 +67,8 @@ Because it controls other programs, here is exactly what it does:
 | End the game | Normal close, then force. For elevated games it asks Windows for administrator permission (UAC) | "End game" |
 | Power commands | `cmd /c <command>` with the commands in settings (default `shutdown /r /t 0`, `shutdown /s /t 0`), and the standard suspend call | Restart, shut down, suspend |
 | Remove "run as administrator" | Edits the *current user's* compatibility flag in `HKCU\...\AppCompatFlags\Layers` for that game's exe, only if you accept or enable the option | Let the game be paused |
+| Read and control the player | Windows media controls (read what is playing; send play/pause, next, previous, volume, shuffle, repeat). To open or close a player from the menu it launches the app you configured and ends that app's own processes | Show the music card, control it and open/close your player |
+| Minimize the player | Win32 `ShowWindow` on the windows of the player you just opened, only while the menu is open | Keep a freshly opened player out of the way |
 | Read achievements | Read-only access to the database of the *Playnite Achievements* plugin | Show achievements in the menu |
 | Playnite setting | While a game runs, "Guide button focuses Playnite" is limited to "only when no game is running", and restored when the game stops | Playnite would otherwise pop up when you press the button |
 
@@ -74,6 +80,9 @@ It does **not** use the network, collect data, or modify game files. Everything 
 - Some games minimize themselves when they lose focus; the plugin brings them back, but behavior varies.
 - A normal (non-elevated) Playnite cannot pause or close an elevated game: use the plugin's options, run Playnite as administrator, or remove the flag.
 - Anti-cheat games are never paused by default (setting *Don't pause anti-cheat games*).
+- Seek (±10 s) and the time bar depend on the player: some (e.g. SimpMusic) do not report the song length through Windows, so they are not shown.
+- Shuffle and repeat only work if the player accepts them from Windows; Spotify may ignore some changes.
+- In Xbox's full-screen experience mode, Windows may keep the Guide button for itself; use the keyboard shortcut or the Select + Start option there.
 
 ## Build from source
 
@@ -85,11 +94,15 @@ dotnet build -c Release
 
 The output (`bin\Release\`) contains `ConsoleOverlay.dll`, `extension.yaml`, `icon.png`, `LICENSE` and `THIRD-PARTY-NOTICES.txt`. Pack it with Playnite's Toolbox: `Toolbox.exe pack "bin\Release" "out"`.
 
+## Support
+
+Console Overlay is free and open source. If you enjoy it, you can support the project on [Ko-fi](https://ko-fi.com/carlosglcn). Bug reports and ideas in [Issues](https://github.com/galcn10/ConsoleOverlay/issues) are just as welcome.
+
 ## License and credits
 
 MIT License — Copyright (c) 2026 galcn10. See [LICENSE](LICENSE).
 
-Third-party components and notices are in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt): [Lucide](https://lucide.dev) / Feather icons and [PlayniteNextOverlay](https://github.com/AleksejSg/PlayniteNextOverlay) (the read-only queries for the Playnite Achievements database).
+Third-party components and notices are in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt): [Lucide](https://lucide.dev) / Feather icons, [PlayniteNextOverlay](https://github.com/AleksejSg/PlayniteNextOverlay) (the read-only queries for the Playnite Achievements database), and the Inter and Nunito fonts (SIL Open Font License).
 
 ## Trademarks
 
