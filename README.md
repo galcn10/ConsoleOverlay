@@ -96,7 +96,7 @@ The output (`bin\Release\`) contains `ConsoleOverlay.dll`, `extension.yaml`, `ic
 
 ## Support
 
-Console Overlay is free and open source. If you enjoy it, you can support the project on [Ko-fi](https://ko-fi.com/carlosglcn). Bug reports and ideas in [Issues](https://github.com/galcn10/ConsoleOverlay/issues) are just as welcome.
+Console Overlay is free and open source. If you enjoy it, you can support the project on [Ko-fi](https://ko-fi.com/galcn10). Bug reports and ideas in [Issues](https://github.com/galcn10/ConsoleOverlay/issues) are just as welcome.
 
 ## License and credits
 
