@@ -5,6 +5,7 @@ Un menú superpuesto al estilo consola para Playnite. Pulsa el botón Guide/PS d
 > English: [README.md](README.md)
 
 [Demo video](https://github.com/user-attachments/assets/c1fa10e1-2e8a-4d91-9ffb-3c2d7784b276)
+
 ![Menú principal](docs/screenshots/menu.png)
 ![Tarjeta de música](docs/screenshots/music.png)
 ![Logros](docs/screenshots/achievements_2.png)
