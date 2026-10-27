@@ -4,7 +4,7 @@ A console-style overlay menu for Playnite. Press the controller's Guide/PS butto
 
 > Español: [README.es.md](README.es.md)
 
-[Demo video]([docs/screenshots/menu.png](https://github.com/user-attachments/assets/c1fa10e1-2e8a-4d91-9ffb-3c2d7784b276))
+[Demo video](https://github.com/user-attachments/assets/c1fa10e1-2e8a-4d91-9ffb-3c2d7784b276)
 
 
 ![Main menu](docs/screenshots/menu.png)
