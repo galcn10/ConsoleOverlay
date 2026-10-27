@@ -1,6 +1,6 @@
-# Console Overlay para Playnite
+Console Overlay para Playnite
 
-Un menú superpuesto al estilo consola para [Playnite](https://playnite.link). Pulsa el botón Guide/PS del mando (o un atajo de teclado) mientras juegas: el juego se pausa, aparece un menú encima y puedes volver al juego, hacer una captura, ver tus logros, controlar la música, cambiar de juego, salir a Playnite, cerrar el juego o apagar el PC, todo desde el sofá y con el mando.
+Un menú superpuesto al estilo consola para Playnite. Pulsa el botón Guide/PS del mando (o un atajo de teclado) mientras juegas: el juego se pausa, aparece un menú encima y puedes volver al juego, hacer una captura, ver tus logros (Playnite Achievements o Steam), salir a Playnite, cerrar el juego o apagar el PC, todo desde el sofá y con el mando.
 
 > English: [README.md](README.md)
 
@@ -14,96 +14,81 @@ Un menú superpuesto al estilo consola para [Playnite](https://playnite.link). P
 
 https://github.com/user-attachments/assets/9ddb563b-5aff-49cf-886e-8047f501044a
 
-## Características
+Características
+Solo se abre dentro de un juego, como una consola. No hace nada en la pantalla de inicio de Playnite (salvo que actives allí el menú de energía).
+Pausa el juego mientras el menú está abierto y silencia solo el audio del juego. Los juegos con anticheat (EasyAntiCheat, BattlEye, Vanguard...) no se pausan, para no perder una partida online.
+Menú: volver al juego · captura de pantalla · guardar clip · galería de capturas y clips · logros · ir a Playnite (el juego sigue pausado) · finalizar juego · energía (suspender / reiniciar / apagar).
+Aspecto nativo: portada de tu biblioteca, vista previa (en directo o último fotograma si está pausado), temporizador de sesión, hora y batería de varios mandos a la vez (DualSense, DualShock, Xbox, Switch Pro, 8BitDo y otros SDL).
+Sigue tu tema de Playnite: colores y tipografía se leen del tema que uses (o de la portada del juego), y los iconos de los botones siguen el tipo de mando configurado en el modo fullscreen de Playnite.
+Funciona con juegos ejecutados como administrador: abre el menú sin pausar y puede quitar la marca «ejecutar como administrador» si se lo pides.
+Programas de capturas: pulsa el atajo de tu programa (GameHQ, NVIDIA App, Steam, Xbox Game Bar...) y localiza los archivos en las carpetas habituales.
+Logros de Steam sin plugins extra: lee los archivos locales de Steam (solo lectura) y muestra progreso, rareza y fechas; se vuelven a leer cuando cambian.
+Capturas nítidas: la galería y el visor mantienen nítidas las capturas en 4K.
+Tarjeta de música: muestra lo que suena (Spotify, SimpMusic, YouTube Music en el navegador, VLC...) con los controles multimedia de Windows y permite pausar y cambiar de canción desde el mando. No necesita cuenta ni red.
+Fluido: sin animaciones continuas; los efectos solo actúan sobre la fila seleccionada y durante las transiciones.
+15 idiomas: inglés, español, francés, alemán, portugués, italiano, ruso, chino (simplificado), japonés, y seis traducciones beta (sin revisar): polaco, turco, coreano, neerlandés, ucraniano y chino (tradicional). Se usa el idioma de Playnite por defecto y, si no, el de Windows. ¿Ves un error? Corrígelo en lang\xx.txt o avisa en GitHub.
+Requisitos
+Windows 10 u 11 · Playnite 10. Desarrollado y probado en modo Fullscreen; el modo Escritorio no está probado.
+Un mando o un atajo de teclado. Playnite debe tener activado el soporte de mandos para ver el mando (SDL).
+Instalación
+Descarga ConsoleOverlay_x_y_z.pext desde Releases.
+Haz doble clic (o arrástralo sobre Playnite). Playnite pedirá instalar y reiniciar.
+Abre Complementos → Ajustes de extensiones → Console Overlay.
+Opcional: reproductor de clips en el menú (mpv)
 
-- **Solo se abre dentro de un juego**, como una consola. No hace nada en la pantalla de inicio de Playnite (salvo que actives allí el menú de energía).
-- **Pausa el juego** mientras el menú está abierto y silencia solo el audio del juego. Los juegos con anticheat (EasyAntiCheat, BattlEye, Vanguard...) **no** se pausan, para no perder una partida online. También puedes desactivar la pausa por completo.
-- **Menú**: volver al juego · captura de pantalla · guardar clip · galería de capturas y clips · logros · música · cambiar de juego · ir a Playnite (el juego sigue pausado) · finalizar juego · energía (suspender / reiniciar / apagar).
-- **Tarjeta de música**: muestra lo que suena (Spotify, SimpMusic, YouTube Music en el navegador, VLC...) con los controles multimedia de Windows. Pausa, canción anterior/siguiente, volumen, aleatorio y repetir desde el mando, con el icono y el color del propio reproductor. Si no suena nada, la fila pasa a ser «Abrir música» y lanza tu reproductor minimizado, para que sigas en el juego. No necesita cuenta ni red.
-- **Cambiar a**: con «Finalizar juego» seleccionado, elige uno de tus 3 últimos juegos; el actual se cierra y el nuevo se abre tras una pantalla de transición (opcional).
-- **Logros**: trofeo según rareza (bronce, plata, oro, platino), contadores, barras de progreso, resalte dorado en los conseguidos y un trofeo de platino en la fila principal cuando los tienes todos.
-- **Control por juego**: etiquetas `NoPause` y `NoOverlay`, y una opción para dejar en paz a los emuladores (RetroArch, PCSX2, DuckStation...).
-- **Aspecto nativo**: portada de tu biblioteca, vista previa (en directo o último fotograma si está pausado), temporizador de sesión, hora y batería de varios mandos a la vez (DualSense, DualShock, Xbox, Switch Pro, 8BitDo y otros SDL), cada uno con su color y su número.
-- **Sigue tu tema de Playnite**: colores y tipografía se leen del tema que uses (o de la portada del juego), y los iconos de los botones siguen el tipo de mando configurado en el modo fullscreen de Playnite.
-- **Funciona con juegos ejecutados como administrador**: abre el menú sin pausar y puede quitar la marca «ejecutar como administrador» si se lo pides.
-- **Programas de capturas**: pulsa el atajo de tu programa (GameHQ, NVIDIA App, Steam, Xbox Game Bar...) y localiza los archivos en las carpetas habituales.
-- **Fluido**: sin animaciones continuas; los efectos solo actúan sobre la fila seleccionada y durante las transiciones.
-- **9 idiomas**: inglés, español, francés, alemán, portugués, italiano, ruso, chino, japonés (el idioma de Playnite por defecto, y si no, el de Windows).
+Los clips pueden reproducirse dentro del overlay con mpv, un reproductor gratuito. No va incluido en el plugin. Para activarlo, descarga mpv para Windows y copia mpv.exe (con sus DLL, si las tiene) en una carpeta llamada mpv dentro de la carpeta del plugin (%AppData%\Playnite\Extensions\ConsoleOverlay_galcn10\mpv\). Sin él, al elegir un clip se abre con el reproductor de Windows. mpv tiene licencia GPL y se ejecuta como programa aparte; ver THIRD-PARTY-NOTICES.txt.
 
-## Requisitos
-
-- Windows 10 u 11 · Playnite 10. Desarrollado y probado en modo Fullscreen; el modo Escritorio no está probado.
-- Un mando o un atajo de teclado. Playnite debe tener activado el soporte de mandos para ver el mando (SDL).
-
-## Instalación
-
-1. Descarga `ConsoleOverlay_x_y_z.pext` desde [Releases](https://github.com/galcn10/ConsoleOverlay/releases).
-2. Haz doble clic (o arrástralo sobre Playnite). Playnite pedirá instalar y reiniciar.
-3. Abre **Complementos → Ajustes de extensiones → Console Overlay**.
-
-## Opcional: reproductor de clips en el menú (mpv)
-
-Los clips pueden reproducirse dentro del overlay con [mpv](https://mpv.io), un reproductor gratuito. **No va incluido** en el plugin. Para activarlo, descarga mpv para Windows y copia `mpv.exe` (con sus DLL, si las tiene) en una carpeta llamada `mpv` dentro de la carpeta del plugin (`%AppData%\Playnite\Extensions\ConsoleOverlay_galcn10\mpv\`). Sin él, al elegir un clip se abre con el reproductor de Windows. mpv tiene licencia GPL y se ejecuta como programa aparte; ver [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
-
-## Primeros pasos
-
-- **Mando**: pulsa el **botón Guía/PS** (activado de serie) para abrir el menú o volver al juego. Pulsación larga: menú de energía. Si Steam u otro programa ya usa ese botón, desactiva allí su acción o activa la alternativa en *Abrir el menú*: mantener **Select + Start** 1 s (desactivada de serie). La primera vez, un aviso lo explica.
-- **Teclado / JoyToKey / Steam Input**: los atajos por defecto son `Ctrl+Alt+F10` (menú) y `Ctrl+Alt+F11` (finalizar juego). Asígnalos a cualquier botón.
-- **Programa de capturas**: elige el tuyo en *Capturas y clips* para que el menú pueda accionarlo.
-- **Música**: con una canción sonando, la fila de música muestra la tarjeta (A pausa · L1/R1 canción · X cerrar el reproductor). Añade tus propios reproductores en *Reproductores a abrir*, uno por línea con el formato `Nombre|ruta`.
-
-## Qué hace el plugin en tu sistema
+Primeros pasos
+Mando: pulsa el botón Guía/PS (activado de serie) para abrir el menú o volver al juego. Pulsación larga: menú de energía. Si Steam u otro programa ya usa ese botón, desactiva allí su acción o activa la alternativa en Abrir el menú: mantener Select + Start 1 s (desactivada de serie). La primera vez, un aviso lo explica.
+Teclado / JoyToKey / Steam Input: los atajos por defecto son Ctrl+Alt+F10 (menú) y Ctrl+Alt+F11 (finalizar juego). Asígnalos a cualquier botón.
+Programa de capturas: elige el tuyo en Capturas y clips para que el menú pueda accionarlo.
+Qué hace el plugin en tu sistema
 
 Como controla otros programas, esto es exactamente lo que hace:
 
-| Acción | Cómo | Para qué |
-|---|---|---|
-| Pausar / reanudar el juego | `NtSuspendProcess` / `NtResumeProcess` sobre los procesos del juego | Congelar el juego con el menú abierto |
-| Silenciar el juego | Sesiones de audio de Windows (Core Audio) de los procesos del juego | Silenciar solo el juego, no el sistema |
-| Leer el mando | El `SDL2.dll` de Playnite y acceso HID de solo lectura para la batería | Botón Guide y nivel de batería |
-| Enviar teclas | `keybd_event` para los atajos que **tú** configures | Accionar tu programa de capturas |
-| Registrar atajos | `RegisterHotKey` (por defecto `Ctrl+Alt+F10/F11`) | Abrir el menú / finalizar el juego |
-| Mover ventanas | Win32 `SetWindowPos`, `SetForegroundWindow`, miniaturas DWM | Mostrar el menú, devolver el juego, vista previa |
-| Finalizar el juego | Cierre normal y, si no responde, forzado. En juegos elevados pide permiso de administrador a Windows (UAC) | «Finalizar juego» |
-| Comandos de energía | `cmd /c <comando>` con los comandos de los ajustes (por defecto `shutdown /r /t 0`, `shutdown /s /t 0`) y la llamada estándar de suspensión | Reiniciar, apagar, suspender |
-| Quitar «ejecutar como administrador» | Edita la marca de compatibilidad del *usuario actual* en `HKCU\...\AppCompatFlags\Layers` del exe de ese juego, solo si lo aceptas o activas la opción | Poder pausar el juego |
-| Leer y controlar el reproductor | Controles multimedia de Windows (leer lo que suena; enviar pausa, siguiente, anterior, volumen, aleatorio, repetir). Para abrir o cerrar un reproductor desde el menú, lanza la app que configuraste y termina los procesos de esa misma app | Mostrar la tarjeta de música, controlarla y abrir/cerrar tu reproductor |
-| Minimizar el reproductor | Win32 `ShowWindow` sobre las ventanas del reproductor que acabas de abrir, solo mientras el menú está abierto | Mantener fuera de en medio un reproductor recién abierto |
-| Leer logros | Acceso de solo lectura a la base de datos del plugin *Playnite Achievements* | Mostrar logros en el menú |
-| Ajuste de Playnite | Mientras hay un juego en marcha, «El botón Guide enfoca Playnite» queda limitado a «solo cuando no hay juego» y se restaura al terminar | Si no, Playnite saltaría al pulsar el botón |
+Acción	Cómo	Para qué
+Pausar / reanudar el juego	NtSuspendProcess / NtResumeProcess sobre los procesos del juego	Congelar el juego con el menú abierto
+Silenciar el juego	Sesiones de audio de Windows (Core Audio) de los procesos del juego	Silenciar solo el juego, no el sistema
+Leer el mando	El SDL2.dll de Playnite y acceso HID de solo lectura para la batería	Botón Guide y nivel de batería
+Enviar teclas	keybd_event para los atajos que tú configures	Accionar tu programa de capturas
+Registrar atajos	RegisterHotKey (por defecto Ctrl+Alt+F10/F11)	Abrir el menú / finalizar el juego
+Mover ventanas	Win32 SetWindowPos, SetForegroundWindow, miniaturas DWM	Mostrar el menú, devolver el juego, vista previa
+Finalizar el juego	Cierre normal y, si no responde, forzado. En juegos elevados pide permiso de administrador a Windows (UAC)	«Finalizar juego»
+Comandos de energía	cmd /c <comando> con los comandos de los ajustes (por defecto shutdown /r /t 0, shutdown /s /t 0) y la llamada estándar de suspensión	Reiniciar, apagar, suspender
+Quitar «ejecutar como administrador»	Edita la marca de compatibilidad del usuario actual en HKCU\...\AppCompatFlags\Layers del exe de ese juego, solo si lo aceptas o activas la opción	Poder pausar el juego
+Leer el reproductor	Controles multimedia de Windows (leer lo que suena; enviar pausa, siguiente, anterior)	Mostrar la tarjeta de música y controlarla con el mando
+Leer logros	Acceso de solo lectura a la base de datos del plugin Playnite Achievements y a los archivos locales de estadísticas de Steam	Mostrar logros en el menú
+Ajuste de Playnite	Mientras hay un juego en marcha, «El botón Guide enfoca Playnite» queda limitado a «solo cuando no hay juego» y se restaura al terminar	Si no, Playnite saltaría al pulsar el botón
 
-**No** usa la red, no recoge datos y no modifica archivos de los juegos. Todo lo que guarda está en la carpeta de datos del plugin.
+No usa la red, no recoge datos y no modifica archivos de los juegos. Todo lo que guarda está en la carpeta de datos del plugin.
 
-## Limitaciones conocidas
-
-- Los juegos en pantalla completa exclusiva real pueden mostrar la vista previa en negro.
-- Algunos juegos se minimizan al perder el foco; el plugin los recupera, pero el comportamiento varía.
-- Un Playnite normal (sin elevar) no puede pausar ni cerrar un juego elevado: usa las opciones del plugin, ejecuta Playnite como administrador o quita la marca.
-- Los juegos con anticheat no se pausan por defecto (ajuste *No pausar juegos con anticheat*).
-- Avanzar o retroceder 10 s y la barra de tiempo dependen del reproductor: algunos (p. ej. SimpMusic) no informan de la duración de la canción a Windows, así que no se muestran.
-- Aleatorio y repetir solo funcionan si el reproductor los acepta desde Windows; Spotify puede ignorar algunos cambios.
-- En el modo de experiencia a pantalla completa de Xbox, Windows puede quedarse con el botón Guía; usa el atajo de teclado o la opción Select + Start.
-
-## Compilar desde el código
+Limitaciones conocidas
+Los juegos en pantalla completa exclusiva real pueden mostrar la vista previa en negro.
+Algunos juegos se minimizan al perder el foco; el plugin los recupera, pero el comportamiento varía.
+Un Playnite normal (sin elevar) no puede pausar ni cerrar un juego elevado: usa las opciones del plugin, ejecuta Playnite como administrador o quita la marca.
+Los juegos con anticheat no se pausan por defecto (ajuste No pausar juegos con anticheat).
+Compilar desde el código
 
 Requiere el SDK de .NET. Desde esta carpeta:
 
-```
 dotnet build -c Release
-```
 
-La salida (`bin\Release\`) contiene `ConsoleOverlay.dll`, `extension.yaml`, `icon.png`, `LICENSE` y `THIRD-PARTY-NOTICES.txt`. Empaquétalo con el Toolbox de Playnite: `Toolbox.exe pack "bin\Release" "out"`.
+La salida (bin\Release\) contiene ConsoleOverlay.dll, extension.yaml, icon.png, LICENSE y THIRD-PARTY-NOTICES.txt. Empaquétalo con el Toolbox de Playnite: Toolbox.exe pack "bin\Release" "out".
 
-## Apoyo
+Licencia y créditos
 
-Console Overlay es gratuito y de código abierto. Si te gusta, puedes apoyar el proyecto en [Ko-fi](https://ko-fi.com/carlosglcn). Los avisos de errores y las ideas en [Issues](https://github.com/galcn10/ConsoleOverlay/issues) también se agradecen mucho.
+Licencia MIT — Copyright (c) 2026 galcn10. Ver LICENSE.
 
-## Licencia y créditos
+Gracias al autor de GameHQ por el aviso que permitió mejorar la nitidez de las capturas en 4K.
 
-Licencia MIT — Copyright (c) 2026 galcn10. Ver [LICENSE](LICENSE).
+Apoyo
 
-Los componentes de terceros y sus avisos están en [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt): iconos de [Lucide](https://lucide.dev) / Feather, [PlayniteNextOverlay](https://github.com/AleksejSg/PlayniteNextOverlay) (las consultas de solo lectura a la base de datos de Playnite Achievements) y las fuentes Inter y Nunito (licencia SIL Open Font).
+Es gratuito y lo seguirá siendo. Si te resulta útil y quieres darme las gracias, puedes invitarme a un café:
 
-## Marcas
+Apóyame en Ko-fi
+
+Los componentes de terceros y sus avisos están en THIRD-PARTY-NOTICES.txt: iconos de Lucide / Feather y PlayniteNextOverlay (las consultas de solo lectura a la base de datos de Playnite Achievements).
+
+Marcas
 
 «PlayStation» y «DualSense» son marcas de Sony Interactive Entertainment; «Xbox», de Microsoft; «Steam», de Valve; «Nintendo» y «Switch», de Nintendo; GameHQ, NVIDIA y el resto de nombres son marcas de sus propietarios. Se citan solo para indicar con qué hardware y programas es compatible. Este proyecto no está afiliado, respaldado ni patrocinado por ninguno de ellos y no usa sus logotipos ni su material gráfico.
