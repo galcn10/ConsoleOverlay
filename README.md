@@ -85,7 +85,9 @@ Support
 
 It is free and always will be. If it is useful to you and you want to say thanks, you can buy me a coffee:
 
-Support me on Ko-fi
+Support me on Ko-fi 
+
+<script type='text/javascript' src='https://storage.ko-fi.com/cdn/widget/Widget_2.js'></script><script type='text/javascript'>kofiwidget2.init('Support me on Ko-fi', '#72a4f2', 'P3A629E34D');kofiwidget2.draw();</script> 
 
 Third-party components and notices are in THIRD-PARTY-NOTICES.txt: Lucide / Feather icons and PlayniteNextOverlay (the read-only queries for the Playnite Achievements database).
 
