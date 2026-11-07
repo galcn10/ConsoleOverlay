@@ -135,6 +135,12 @@ namespace ConsoleOverlay
         // Reproductores de la Tienda que el plugin ha visto sonando ("Nombre|shell:AppsFolder\id" por línea).
         public string LearnedMusicApps { get => learnedMusicApps; set => SetValue(ref learnedMusicApps, value ?? ""); }
         private string learnedMusicApps = "";
+        // Reproductores que no se quieren ver en la lista de «Abrir música» (nombres, uno por línea).
+        public string HiddenMusicApps { get => hiddenMusicApps; set => SetValue(ref hiddenMusicApps, value ?? ""); }
+        private string hiddenMusicApps = "";
+        // Registra en el log cuánto tardan las acciones principales (para detectar lentitud).
+        public bool Diagnostics { get => diagnostics; set => SetValue(ref diagnostics, value); }
+        private bool diagnostics;
         public string MusicPlayer { get => musicPlayer; set => SetValue(ref musicPlayer, value ?? ""); }
         public bool PauseGame { get => pauseGame; set => SetValue(ref pauseGame, value); }
         public bool NoPauseAntiCheat { get => noPauseAntiCheat; set => SetValue(ref noPauseAntiCheat, value); }
@@ -278,6 +284,8 @@ namespace ConsoleOverlay
             MusicPlayer = o.MusicPlayer ?? "";
             MusicApps = o.MusicApps ?? "";
             LearnedMusicApps = o.LearnedMusicApps ?? "";
+            HiddenMusicApps = o.HiddenMusicApps ?? "";
+            Diagnostics = o.Diagnostics;
             NoPauseAntiCheat = o.NoPauseAntiCheat;
             AutoRemoveAdmin = o.AutoRemoveAdmin;
             CaptureFolders = o.CaptureFolders ?? "";

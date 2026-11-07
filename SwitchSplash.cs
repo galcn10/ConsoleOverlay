@@ -12,7 +12,7 @@ namespace ConsoleOverlay
     {
         private bool closing;
 
-        public SwitchSplash(string gameName, ImageSource cover, FontFamily font)
+        public SwitchSplash(string gameName, ImageSource cover, FontFamily font, string message = null)
         {
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
@@ -48,7 +48,7 @@ namespace ConsoleOverlay
             }
             col.Children.Add(new TextBlock
             {
-                Text = Loc.T("Abriendo {0}…", gameName),
+                Text = message ?? Loc.T("Abriendo {0}…", gameName),
                 FontSize = 40,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Brushes.White,

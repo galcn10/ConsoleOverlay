@@ -80,6 +80,28 @@ namespace ConsoleOverlay
         }
 
         // Devuelve null si el plugin/los datos no existen o algo falla (se anota en el log, no lanza).
+        // Marca de última escritura de la base de datos (y de su -wal): sirve para saber si hay datos nuevos.
+        public static long Stamp(string extensionsDataPath)
+        {
+            try
+            {
+                string dbPath = Path.Combine(Path.Combine(extensionsDataPath, PluginId.ToString()), DbName);
+                long t = 0;
+                foreach (string f in new[] { dbPath, dbPath + "-wal" })
+                {
+                    if (File.Exists(f))
+                    {
+                        t = Math.Max(t, File.GetLastWriteTimeUtc(f).Ticks);
+                    }
+                }
+                return t;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
         public static List<AchievementItem> Read(string extensionsDataPath, Guid gameId, Action<string> log)
         {
             try

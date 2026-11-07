@@ -90,6 +90,7 @@
                 <StackPanel Margin="0,0,16,0">
                     <TextBlock x:Name="ThemeProbe" Text="Idioma:" FontSize="14" VerticalAlignment="Center" />
                     <TextBlock Style="{StaticResource Help}" Text="Para corregir o añadir un idioma, crea un archivo lang\xx.txt en la carpeta de datos del plugin (una línea por frase: original, tabulador, traducción)." />
+                    <TextBlock Style="{StaticResource Help}" Text="Los idiomas marcados con (beta) son traducciones sin revisar. Si ves algún error, corrígelo con ese archivo o avísalo en GitHub." />
                 </StackPanel>
                 <ContentControl Grid.Column="1" VerticalAlignment="Top">
                     <ComboBox Width="220" ItemsSource="{Binding LanguageOptions}" DisplayMemberPath="Name" SelectedValuePath="Code" SelectedValue="{Binding Language}" />
@@ -187,6 +188,16 @@
                 </StackPanel>
                 <ContentControl Grid.Column="1" VerticalAlignment="Top">
                     <TextBox Width="220" Height="60" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" Text="{Binding MusicApps, UpdateSourceTrigger=PropertyChanged}" />
+                </ContentControl>
+            </Grid>
+            <Grid Tag="row" Margin="0,0,0,16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel Margin="0,0,16,0">
+                    <TextBlock Text="Reproductores ocultos:" FontSize="14" VerticalAlignment="Center" />
+                    <TextBlock Style="{StaticResource Help}" Text="Reproductores que no quieres ver en «Abrir música»: uno por línea, con el nombre tal como aparece en el menú." />
+                </StackPanel>
+                <ContentControl Grid.Column="1" VerticalAlignment="Top">
+                    <TextBox Width="220" Height="60" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" Text="{Binding HiddenMusicApps, UpdateSourceTrigger=PropertyChanged}" />
                 </ContentControl>
             </Grid>
             <StackPanel Tag="row" Margin="0,0,0,16">
@@ -364,6 +375,10 @@
                     <TextBox Width="260" Text="{Binding ShutdownCommand}" />
                 </ContentControl>
             </Grid>
+            <StackPanel Tag="row" Margin="0,0,0,16">
+                <CheckBox Style="{StaticResource Switch}" Content="Modo diagnóstico" IsChecked="{Binding Diagnostics}" />
+                <TextBlock Style="{StaticResource Help}" Text="Registra en el log cuánto tarda en abrirse el menú, la galería y la vuelta al juego. Útil para informar de lentitud." />
+            </StackPanel>
             </StackPanel>
         </TabItem>
         </TabControl>

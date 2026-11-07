@@ -902,4 +902,66 @@ namespace ConsoleOverlay
             [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
         }
     }
+
+    // Lectura mínima de los mandos XInput (Xbox y compatibles) solo para saber si hay algún botón pulsado.
+    internal static class XPad
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct XState
+        {
+            public uint PacketNumber;
+            public ushort Buttons;
+            public byte LeftTrigger;
+            public byte RightTrigger;
+            public short LX, LY, RX, RY;
+        }
+
+        [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
+        private static extern int GetState14(int index, out XState state);
+
+        [DllImport("xinput9_1_0.dll", EntryPoint = "XInputGetState")]
+        private static extern int GetState91(int index, out XState state);
+
+        private static bool use91;
+
+        private static int Get(int i, out XState st)
+        {
+            if (!use91)
+            {
+                try
+                {
+                    return GetState14(i, out st);
+                }
+                catch (DllNotFoundException)
+                {
+                    use91 = true;
+                }
+                catch (EntryPointNotFoundException)
+                {
+                    use91 = true;
+                }
+            }
+            return GetState91(i, out st);
+        }
+
+        // true si algún mando conectado tiene un botón o gatillo pulsado (los sticks no cuentan).
+        public static bool AnyPressed()
+        {
+            try
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    XState st;
+                    if (Get(i, out st) == 0 && (st.Buttons != 0 || st.LeftTrigger > 40 || st.RightTrigger > 40))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return false;
+        }
+    }
 }

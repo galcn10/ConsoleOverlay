@@ -102,6 +102,7 @@ namespace ConsoleOverlay
         private ImageSource backdropCache;
         private List<AchievementItem> achCache;
         private string achFor;
+        private long achStamp;
         private List<CaptureItem> capCache;
         private string capFor;
         private string elevatedFlagExe;   // ejecutable (del juego o su lanzador) que tiene la marca de administrador del usuario
@@ -176,6 +177,9 @@ namespace ConsoleOverlay
             {
                 logger.Info("Console Overlay " + GetType().Assembly.GetName().Version.ToString(3) + ". Datos en: " + GetPluginUserDataPath());
                 RecoverSuspended();
+                Diag.Enabled = settings.Diagnostics;
+                AppDomain.CurrentDomain.UnhandledException += OnUnhandled;
+                TaskScheduler.UnobservedTaskException += OnUnobserved;
                 if (settings.ShowMusic)
                 {
                     // Se prepara ya, en segundo plano, para que la música esté lista cuando se abra el menú.
@@ -237,10 +241,23 @@ namespace ConsoleOverlay
             }
         }
 
+        // Red de seguridad: solo deja constancia en el log de los errores que nadie ha capturado (no cambia el comportamiento de Playnite).
+        private void OnUnhandled(object sender, UnhandledExceptionEventArgs e)
+        {
+            try { logger.Error(e.ExceptionObject as Exception, "Excepción no controlada (registrada por Console Overlay)"); } catch { }
+        }
+
+        private void OnUnobserved(object sender, UnobservedTaskExceptionEventArgs e)
+        {
+            try { logger.Warn(e.Exception, "Error en una tarea en segundo plano (registrado por Console Overlay)"); } catch { }
+        }
+
         public override void OnApplicationStopped(OnApplicationStoppedEventArgs args)
         {
             try
             {
+                AppDomain.CurrentDomain.UnhandledException -= OnUnhandled;
+                TaskScheduler.UnobservedTaskException -= OnUnobserved;
                 UiFeedback.Shutdown();
                 ClipPlayer.ShutdownAll();
                 SuppressPlayniteGuideFocus(false);
@@ -1173,6 +1190,8 @@ namespace ConsoleOverlay
 
         private void HandleGesture(bool longPress)
         {
+            Diag.Enabled = settings.Diagnostics;
+            Diag.Begin();
             if (switching)
             {
                 return;
@@ -1305,7 +1324,7 @@ namespace ConsoleOverlay
             }
             try
             {
-                EndGameCore();
+                EndGameWithSplash();
             }
             catch (Exception ex)
             {
@@ -1494,8 +1513,7 @@ namespace ConsoleOverlay
                             ? Loc.T("¿Finalizar el juego? Windows puede pedirte permiso de administrador. Se perderá el progreso que no esté guardado.")
                             : Loc.T("¿Finalizar el juego? Se perderá el progreso que no esté guardado.")))
                         {
-                            CloseMenuWindow();
-                            EndGameCore();
+                            EndGameWithSplash();
                             return;
                         }
                         page = MenuPage.Main;
@@ -1512,8 +1530,7 @@ namespace ConsoleOverlay
                     case MenuAction.Restart:
                         if (Confirm(hasGame ? Loc.T("¿Reiniciar el equipo? Se cerrará el juego.") : Loc.T("¿Reiniciar el equipo?")))
                         {
-                            CloseMenuWindow();
-                            RunPowerCommand(settings.RestartCommand, hasGame);
+                            RunPowerCommand(settings.RestartCommand, hasGame, Loc.T("Reiniciando el equipo…"));
                             return;
                         }
                         page = MenuPage.Power;
@@ -1522,8 +1539,7 @@ namespace ConsoleOverlay
                     case MenuAction.Shutdown:
                         if (Confirm(hasGame ? Loc.T("¿Apagar el equipo? Se cerrará el juego.") : Loc.T("¿Apagar el equipo?")))
                         {
-                            CloseMenuWindow();
-                            RunPowerCommand(settings.ShutdownCommand, hasGame);
+                            RunPowerCommand(settings.ShutdownCommand, hasGame, Loc.T("Apagando el equipo…"));
                             return;
                         }
                         page = MenuPage.Power;
@@ -1723,11 +1739,33 @@ namespace ConsoleOverlay
                     string tg = raw.Substring(bar + 1).Trim();
                     if (nm.Length > 0 && tg.Length > 0 && !res.Any(r => r.Key.Equals(nm, StringComparison.OrdinalIgnoreCase) || r.Value.Equals(tg, StringComparison.OrdinalIgnoreCase)))
                     {
-                        res.Add(new KeyValuePair<string, string>(nm, tg));
+                        res.Add(new KeyValuePair<string, string>(FriendlyMusicName(nm), tg));
                     }
                 }
             }
+            HashSet<string> hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string raw in (settings.HiddenMusicApps ?? "").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (raw.Trim().Length > 0)
+                {
+                    hidden.Add(raw.Trim());
+                }
+            }
+            if (hidden.Count > 0)
+            {
+                res.RemoveAll(r => hidden.Contains(r.Key.Trim()));
+            }
             return res;
+        }
+
+        // Nombre legible de una app que Windows identifica por su paquete (p. ej. Microsoft.ZuneMusic = el Reproductor multimedia).
+        private static string FriendlyMusicName(string name)
+        {
+            if (name != null && name.StartsWith("Microsoft.ZuneMusic", StringComparison.OrdinalIgnoreCase))
+            {
+                return Loc.T("Reproductor multimedia");
+            }
+            return name;
         }
 
         private List<KeyValuePair<string, string>> autoMusicApps;
@@ -2232,7 +2270,8 @@ namespace ConsoleOverlay
                     int idle = 0;
                     for (int i = 0; i < 30 && idle < 3; i++)
                     {
-                        Thread.Sleep(400);
+                        // Los primeros segundos (cuando la app abre su ventana y roba el foco) se vigila más a menudo.
+                        Thread.Sleep(i < 20 ? 150 : 400);
                         if (activeMenu == null)
                         {
                             idle++;
@@ -2240,6 +2279,10 @@ namespace ConsoleOverlay
                         }
                         idle = 0;
                         try { MinimizeMusicWindows(procName); } catch { }
+                        if (i < 20)
+                        {
+                            KeepMenuOnTop();
+                        }
                     }
                 });
             }
@@ -2594,7 +2637,16 @@ namespace ConsoleOverlay
                     {
                         logger.Info("Música: no se cierra '" + name + "' (navegador o nombre dudoso)");
                     }
-                    Thread.Sleep(700);
+                    // Nada más cerrar la app, el menú se vuelve a poner delante (antes esperaba 0,7 s y se veía desaparecer).
+                    foreach (int quick in new[] { 0, 120, 300, 500 })
+                    {
+                        if (quick > 0)
+                        {
+                            Thread.Sleep(quick == 120 ? 120 : 180);
+                        }
+                        KeepMenuOnTop();
+                    }
+                    Thread.Sleep(200);
                     PlayniteApi.MainView.UIDispatcher.BeginInvoke(new Action(() =>
                     {
                         MenuWindow m = activeMenu;
@@ -2676,6 +2728,25 @@ namespace ConsoleOverlay
             catch
             {
                 return true;
+            }
+        }
+
+        // Desde cualquier hilo: pide al menú abierto que se quede delante.
+        private void KeepMenuOnTop()
+        {
+            try
+            {
+                PlayniteApi.MainView.UIDispatcher.BeginInvoke(new Action(() =>
+                {
+                    MenuWindow m = activeMenu;
+                    if (m != null)
+                    {
+                        m.KeepOnTop();
+                    }
+                }));
+            }
+            catch
+            {
             }
         }
 
@@ -2853,6 +2924,18 @@ namespace ConsoleOverlay
         }
 
         // Logros del juego actual (null si no hay plugin, datos o juego). Se lee una vez por menú.
+        private static bool IsSteamGame(Game g)
+        {
+            try
+            {
+                return g != null && g.PluginId == new Guid("CB91DFC9-B977-43BF-8E70-55F46E410FAB") && SteamLive.IsSteamAppId(g.GameId);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private List<AchievementItem> GetAchievements()
         {
             try
@@ -2867,13 +2950,21 @@ namespace ConsoleOverlay
                     return null;
                 }
                 string id = g.Id.ToString();
-                if (achFor == id)
+                string steamId = IsSteamGame(g) ? g.GameId : null;
+                long stamp = AchievementReader.Stamp(PlayniteApi.Paths.ExtensionsDataPath) ^ (SteamLive.Stamp(steamId) * 31);
+                // Se vuelve a leer si la base de datos de Playnite Achievements cambió desde la última lectura.
+                if (achFor == id && stamp == achStamp)
                 {
                     return achCache;
                 }
                 AchievementReader.Preload(PlayniteApi.Paths.ApplicationPath);
                 List<AchievementItem> list = AchievementReader.Read(PlayniteApi.Paths.ExtensionsDataPath, g.Id,
                                                                     m => logger.Info(m));
+                if (list != null && steamId != null)
+                {
+                    // Estado local de Steam: refleja logros y contadores al momento, sin esperar al otro plugin.
+                    SteamLive.Apply(steamId, list, m => logger.Info(m));
+                }
                 if (list != null)
                 {
                     // Conseguidos (los más recientes primero), luego pendientes y al final los secretos.
@@ -2885,6 +2976,12 @@ namespace ConsoleOverlay
                 }
                 achCache = list;
                 achFor = id;
+                achStamp = stamp;
+                if (list != null)
+                {
+                    logger.Info("Logros: leídos " + list.Count + " (conseguidos " + list.Count(x => x.Unlocked) +
+                                "), marca " + (stamp == 0 ? "?" : stamp.ToString()));
+                }
                 return list;
             }
             catch (Exception ex)
@@ -2895,6 +2992,21 @@ namespace ConsoleOverlay
         }
 
         // Nombre del juego y variantes con las que las herramientas de captura suelen nombrar carpetas y archivos.
+        // true si otro juego de la biblioteca empieza por ese nombre corto (saga con varios juegos).
+        private bool IsSharedNamePrefix(Game g, string prefix)
+        {
+            try
+            {
+                string p = prefix.Trim();
+                return p.Length > 0 && PlayniteApi.Database.Games.Any(o => o.Id != g.Id && o.Name != null &&
+                                                                          o.Name.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private List<string> CaptureNames(Game g)
         {
             List<string> names = new List<string>();
@@ -2904,7 +3016,17 @@ namespace ConsoleOverlay
                 int i = g.Name.IndexOf(sep, StringComparison.Ordinal);
                 if (i >= 4)
                 {
-                    names.Add(g.Name.Substring(0, i));
+                    string shortName = g.Name.Substring(0, i);
+                    if (IsSharedNamePrefix(g, shortName))
+                    {
+                        // Hay otro juego en la biblioteca que empieza igual (p. ej. «SILENT HILL: Townfall» y «SILENT HILL f»):
+                        // buscar solo por «SILENT HILL» mezclaría las capturas de los dos.
+                        logger.Info("Capturas: se descarta el nombre corto \"" + shortName.Trim() + "\" porque lo comparten otros juegos de la biblioteca.");
+                    }
+                    else
+                    {
+                        names.Add(shortName);
+                    }
                 }
             }
             try
@@ -3160,6 +3282,7 @@ namespace ConsoleOverlay
                     }
                     logger.Info("Captura de \"" + name + "\": no ha aparecido ningún archivo nuevo en " + string.Join("; ", roots.Take(8)) +
                                 ". Indica en Ajustes la carpeta donde tu programa guarda las capturas.");
+                    Notify(Loc.T("No he detectado ninguna captura nueva. Comprueba en Ajustes el programa de captura, su atajo y la carpeta donde guarda."));
                 }
                 catch (Exception ex)
                 {
@@ -3215,7 +3338,9 @@ namespace ConsoleOverlay
 
         private void ShowCapturesPage()
         {
+            Stopwatch swCap = Stopwatch.StartNew();
             List<CaptureItem> list = GetCaptures();
+            Diag.Log("Galería: lista de capturas (" + (list == null ? 0 : list.Count) + ")", swCap.ElapsedMilliseconds);
             if (list == null || list.Count == 0)
             {
                 return;
@@ -3232,6 +3357,7 @@ namespace ConsoleOverlay
 
         private void ShowAchievementsPage()
         {
+            achFor = null; // al abrir la página siempre se lee el estado más reciente
             List<AchievementItem> list = GetAchievements();
             if (list == null)
             {
@@ -3887,21 +4013,77 @@ namespace ConsoleOverlay
             logger.Info("Equipo reanudado tras la suspensión: " + ok);
         }
 
-        private void RunPowerCommand(string command, bool hasGame)
+        private void RunPowerCommand(string command, bool hasGame, string message)
         {
             logger.Info("Acción de energía: " + command + (hasGame ? " (se cierra antes el juego)" : ""));
-            if (hasGame)
+            // Pantalla negra estable con el mensaje: tapa el cierre del juego y el salto a Playnite hasta que el equipo se apaga.
+            SwitchSplash splash = null;
+            try
             {
-                // Un juego pausado impediría que Windows cierre la sesión.
-                EndGameCore();
+                ImageSource none = null;
+                PlayniteApi.MainView.UIDispatcher.Invoke(() =>
+                {
+                    FontFamily font = null;
+                    try
+                    {
+                        string fi;
+                        font = Palette.ThemeFont(out fi);
+                    }
+                    catch
+                    {
+                    }
+                    splash = new SwitchSplash(null, none, font, message);
+                    splash.Show();
+                });
+                Thread.Sleep(150);
             }
-            ProcessStartInfo psi = new ProcessStartInfo("cmd.exe", "/c " + command)
+            catch (Exception ex)
             {
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                WindowStyle = ProcessWindowStyle.Hidden
-            };
-            Process.Start(psi);
+                logger.Warn(ex, "No se pudo mostrar la pantalla de apagado");
+            }
+            CloseMenuWindow(false);
+            try
+            {
+                if (hasGame)
+                {
+                    // Un juego pausado impediría que Windows cierre la sesión.
+                    EndGameCore();
+                }
+                ProcessStartInfo psi = new ProcessStartInfo("cmd.exe", "/c " + command)
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+                Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "No se pudo ejecutar la acción de energía");
+                CloseSplashLater(splash, 0);
+                return;
+            }
+            // Si el equipo no se apaga (p. ej. un script propio que falla), la pantalla se retira a los 30 s para no dejar bloqueado el equipo.
+            CloseSplashLater(splash, 30000);
+        }
+
+        private void CloseSplashLater(SwitchSplash splash, int delayMs)
+        {
+            if (splash == null)
+            {
+                return;
+            }
+            Task.Run(() =>
+            {
+                try
+                {
+                    Thread.Sleep(delayMs);
+                    PlayniteApi.MainView.UIDispatcher.Invoke(() => splash.FadeAndClose());
+                }
+                catch
+                {
+                }
+            });
         }
 
         // ------------------------------------------------------------------
@@ -4458,6 +4640,9 @@ namespace ConsoleOverlay
 
             logger.Info("Volver al juego. PIDs: " + string.Join(",", pids));
             Stopwatch swBack = Stopwatch.StartNew();
+            // Se espera a que se suelten los botones del mando (p. ej. la B con la que se cierra el menú) ANTES de reanudar el juego;
+            // si no, el juego despierta con el botón aún pulsado y lo lee como una pulsación suya.
+            WaitPadReleased(1500);
             Resume(pids);
             Thread.Sleep(50);
 
@@ -4500,6 +4685,19 @@ namespace ConsoleOverlay
                 ok = NativeMethods.BringToFront(target, false);
                 logger.Info("Segundo intento tras minimizar Playnite: " + ok);
             }
+            if (!ok && !noFocus && NativeMethods.IsHung(target))
+            {
+                // El juego muestra «No responde» (suele pasar justo al reanudarlo): se reintenta unos segundos antes de rendirse.
+                logger.Info("La ventana del juego no responde; se reintenta hasta 3 s.");
+                Stopwatch swHung = Stopwatch.StartNew();
+                while (!ok && swHung.ElapsedMilliseconds < 3000 && NativeMethods.IsWindow(target))
+                {
+                    Thread.Sleep(400);
+                    ok = NativeMethods.BringToFront(target, false);
+                }
+                logger.Info("Reintento por «No responde»: " + ok + " (" + swHung.ElapsedMilliseconds + " ms)");
+            }
+            Diag.Log("Volver al juego (hasta tenerlo delante)", swBack.ElapsedMilliseconds);
             logger.Info("Primer plano ahora: " + NativeMethods.Describe(NativeMethods.GetForegroundWindow()));
             if (covered && !ok)
             {
@@ -4554,6 +4752,83 @@ namespace ConsoleOverlay
         }
 
         // Finalizar juego: reanuda (un proceso pausado no puede cerrarse solo), cierre limpio y, si no responde, forzado.
+        // Finalizar el juego detrás de una pantalla oscura con la portada y «Cerrando…»: mientras el juego se cierra y Playnite vuelve
+        // a pintarse no se ve el último fotograma congelado ni parpadeos, y la pantalla se desvanece cuando Playnite ya está estable.
+        private void EndGameWithSplash()
+        {
+            Game g;
+            lock (gate)
+            {
+                g = currentGame;
+            }
+            bool hadGame = g != null && pausedPidsOrGame();
+            SwitchSplash splash = null;
+            try
+            {
+                if (hadGame)
+                {
+                    ImageSource cov = LoadImage(g.CoverImage, 0, 720) ?? LoadImage(g.Icon, 0, 720);
+                    PlayniteApi.MainView.UIDispatcher.Invoke(() =>
+                    {
+                        FontFamily font = null;
+                        try
+                        {
+                            string fi;
+                            font = Palette.ThemeFont(out fi);
+                        }
+                        catch
+                        {
+                        }
+                        splash = new SwitchSplash(g.Name, cov, font, Loc.T("Cerrando {0}…", g.Name));
+                        splash.Show();
+                    });
+                    Thread.Sleep(150);
+                    stoppedSignal.Reset();
+                }
+                CloseMenuWindow(false);
+                EndGameCore();
+                if (hadGame)
+                {
+                    if (!stoppedSignal.Wait(8000))
+                    {
+                        logger.Warn("Finalizar juego: no llegó el aviso de parada; se continúa igualmente.");
+                    }
+                    Thread.Sleep(500); // Playnite termina de pintarse detrás de la pantalla
+                }
+            }
+            finally
+            {
+                try
+                {
+                    SwitchSplash sp = splash;
+                    if (sp != null)
+                    {
+                        PlayniteApi.MainView.UIDispatcher.Invoke(() => sp.FadeAndClose());
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private bool pausedPidsOrGame()
+        {
+            try
+            {
+                List<int> pids;
+                lock (gate)
+                {
+                    pids = new List<int>(pausedPids);
+                }
+                return pids.Union(FindGamePids()).Any();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void EndGameCore()
         {
             List<int> pids;
@@ -4680,6 +4955,27 @@ namespace ConsoleOverlay
             {
                 // Lo más habitual: el usuario ha rechazado el aviso de Windows.
                 logger.Warn(ex, "No se pudo cerrar el juego con permiso de administrador");
+            }
+        }
+
+        private void WaitPadReleased(int timeoutMs)
+        {
+            Stopwatch sw = Stopwatch.StartNew();
+            bool waited = false;
+            while (XPad.AnyPressed())
+            {
+                waited = true;
+                if (sw.ElapsedMilliseconds >= timeoutMs)
+                {
+                    logger.Warn("Los botones del mando siguen pulsados tras " + timeoutMs + " ms; se reanuda igualmente.");
+                    return;
+                }
+                Thread.Sleep(20);
+            }
+            if (waited)
+            {
+                Thread.Sleep(80); // margen para que el juego no vea el último evento de soltado como pulsación
+                logger.Info("Botones del mando soltados tras " + sw.ElapsedMilliseconds + " ms; se reanuda el juego.");
             }
         }
 

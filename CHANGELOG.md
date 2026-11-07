@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.3.2
+
+- Returning to a game that shows "Not responding" (it often happens right after resuming it): the plugin now retries for up to 3 seconds before giving up, instead of leaving you on Playnite.
+- Safety net: errors that nothing else catches (background threads and tasks) are now written to the log instead of going unnoticed. It only logs; it does not change how Playnite behaves.
+- New optional "Diagnostic mode" (Advanced): logs how long the menu takes to show, the gallery list to load and the return to the game. Handy to report slowness.
+- New "Hidden players" box (Menu): hide the music players you never use from "Open music".
+- Fixed: the gallery of a game could show captures of other games from the same series (e.g. "SILENT HILL: Townfall" showing "SILENT HILL f" captures). The short name before ":" is no longer used when another game in your library starts with it.
+- Shutting down or restarting from the menu now shows a stable dark "Shutting down…" screen while the game closes, instead of flashing Playnite for a moment. If the computer has not shut down after 30 seconds (e.g. a custom script failed) the screen is removed.
+- "End game" now shows a dark "Closing <game>…" screen with the cover while the game closes and Playnite redraws, instead of the frozen last frame; it fades out once Playnite is stable.
+- Fixed: the controller button used to close the menu (e.g. B) could also reach the game. The game is now resumed only after all controller buttons are released.
+- When a screenshot is requested from the menu and no new file shows up within 10 seconds, a Playnite notification points to the capture program, shortcut and folder settings.
+- The new settings are translated into all 15 languages (the six beta ones are still unreviewed).
+
+## 1.3.1
+
+- Achievements for Steam games are completed from Steam's own local stats files (read-only, no network): unlocks and progress counters show up when you open the menu as soon as the game reports them to Steam, instead of waiting for Playnite Achievements to refresh.
+- Achievement names and descriptions use Steam's translation for the plugin's language when available.
+- Achievements are read again whenever the data changes, so the menu no longer shows an old state within the same session.
+- The controller battery always shows in its coloured glass pill (with its number), also with a single controller.
+- Menu layout: bigger game preview placed higher, "Switch to" in its own glass card with more room between covers, and a lighter secondary text colour tinted with the theme.
+- Fixed: after leaving Achievements the cursor could jump to another row when the mouse pointer was resting over the menu; accepting in Achievements no longer plays a sound; the Achievements header (tabs and counters) stays in place when a filter shows fewer items; the Windows Media Player shows its proper name in the player list; the menu no longer flickers out for a moment when the music player opens or closes (it is kept in front while the player takes the focus); the capture counter in the gallery is aligned with the rest of the layout.
+- Sharper screenshots on 4K displays: the viewer shows the original resolution (up to 3840 px wide) and gallery thumbnails are decoded at 720 px. Thanks to the GameHQ author for pointing this out.
+- Six new languages (beta, machine-translated and not yet reviewed by native speakers): Polish, Turkish, Korean, Dutch, Ukrainian and Traditional Chinese. They are marked "(beta)" in the language list, and Steam achievement texts follow the same language. Corrections are welcome (a lang\xx.txt file or a GitHub issue).
+- Note: many games only report counters (e.g. "break 666 objects") to Steam when you save or quit, so those can still lag behind what you see in-game.
+
 ## 1.3.0
 
 (Includes everything prepared as 1.2.1, which was never released on its own.)

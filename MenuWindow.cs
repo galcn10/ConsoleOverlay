@@ -68,7 +68,7 @@ namespace ConsoleOverlay
         private static Brush SelBrush = Make("#F7F8FB");
         private static readonly Brush TextBrush = Make("#F2F4F8");
         private static readonly Brush SelTextBrush = Make("#0D0F14");
-        private static readonly Brush MutedBrush = Make("#9AA3BD");
+        private static Brush MutedBrush = Make("#B4BBCF");
         private static Brush PillBrush = Make("#232838");
         private static readonly Brush DangerBrush = Make("#FF8A80");
         private static Brush BadgeBrush = Make("#262C3D");
@@ -103,6 +103,8 @@ namespace ConsoleOverlay
             glass.GradientStops.Add(new GradientStop(Color.FromArgb(140, gBot.R, gBot.G, gBot.B), 1.0));
             glass.Freeze();
             RowBrush = glass;
+            // Gris secundario: más claro y teñido con el acento (antes un gris azulado fijo que desentonaba en temas cálidos).
+            MutedBrush = Frozen(Palette.Mix(Color.FromRgb(0xC2, 0xC8, 0xD8), a, 0.20 * k));
             PillBrush = Frozen(Palette.Mix(Color.FromRgb(0x23, 0x28, 0x38), a, 0.22 * k));
             BadgeBrush = Frozen(Palette.Mix(Color.FromRgb(0x26, 0x2C, 0x3D), a, 0.34 * k));
             BadgeSelBrush = Frozen(Palette.Mix(Color.FromRgb(0xE3, 0xE6, 0xF0), a, 0.12 * k));
@@ -375,6 +377,7 @@ namespace ConsoleOverlay
             };
 
             PreviewKeyDown += OnKeyDown;
+            PreviewMouseMove += OnRealMouseMove;
             ContentRendered += OnRendered;
             Closed += (s, e) =>
             {
@@ -468,6 +471,19 @@ namespace ConsoleOverlay
         }
 
         private bool closing;
+
+        private DateTime lastMouseMoveAt = DateTime.MinValue;
+        private Point lastMousePos = new Point(-1, -1);
+
+        private void OnRealMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            Point p = e.GetPosition(this);
+            if (Math.Abs(p.X - lastMousePos.X) + Math.Abs(p.Y - lastMousePos.Y) >= 3)
+            {
+                lastMousePos = p;
+                lastMouseMoveAt = DateTime.UtcNow;
+            }
+        }
 
         // Cambia el contenido de la ventana (otra pantalla del menú) sin cerrarla.
         public void SetPage(string title, string message, List<MenuEntry> newEntries, int defaultIndex, int newCancelIndex,
@@ -573,16 +589,15 @@ namespace ConsoleOverlay
                 };
                 string key = b.Wired ? "battery-charging" : (b.Level >= 3 ? "battery-full" : (b.Level == 2 ? "battery-medium" : (b.Level == 1 ? "battery-low" : "battery")));
                 Brush color = b.Wired ? OkBrush : (b.Level <= 1 ? DangerBrush : (b.Level == 2 ? MidBrush : OkBrush));
-                // Con varios mandos, cada uno lleva su color (mando y número) y una pastilla suave de ese color;
+                // Cada mando lleva su color (mando y número) y una pastilla suave de ese color, también con uno solo;
                 // la batería y el porcentaje mantienen el color del nivel.
                 string padHex = PadColors[Math.Max(0, b.Index - 1) % PadColors.Length];
-                Brush padBrush = list.Count > 1 ? Make("#" + padHex) : color;
+                Brush padBrush = Make("#" + padHex);
                 one.Children.Add(SmallIcon("gamepad-2", padBrush, 34));
-                if (list.Count > 1)
                 {
                     one.Children.Add(new TextBlock
                     {
-                        Text = b.Index.ToString(),
+                        Text = Math.Max(1, b.Index).ToString(),
                         FontSize = 24,
                         FontWeight = FontWeights.Bold,
                         Foreground = padBrush,
@@ -614,24 +629,17 @@ namespace ConsoleOverlay
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(8, 0, 0, 0)
                 });
-                if (list.Count > 1)
+                Border pill = new Border
                 {
-                    Border pill = new Border
-                    {
-                        Background = Make("#22" + padHex),
-                        BorderBrush = Make("#66" + padHex),
-                        BorderThickness = new Thickness(2),
-                        CornerRadius = new CornerRadius(30),
-                        Padding = new Thickness(12, 4, 18, 4),
-                        Margin = new Thickness(i == 0 ? 0 : 20, 0, 0, 0),
-                        Child = one
-                    };
-                    batteryHost.Children.Add(pill);
-                }
-                else
-                {
-                    batteryHost.Children.Add(one);
-                }
+                    Background = Make("#22" + padHex),
+                    BorderBrush = Make("#66" + padHex),
+                    BorderThickness = new Thickness(2),
+                    CornerRadius = new CornerRadius(30),
+                    Padding = new Thickness(12, 4, 18, 4),
+                    Margin = new Thickness(i == 0 ? 0 : 20, 0, 0, 0),
+                    Child = one
+                };
+                batteryHost.Children.Add(pill);
             }
             batteryHost.Visibility = Visibility.Visible;
         }
@@ -645,7 +653,7 @@ namespace ConsoleOverlay
         }
 
         // Tarjeta de la miniatura: a la derecha de la lista, con un margen amplio respecto a los botones.
-        private const double PipX = 1424, PipY = 400, PipW = 376, PipH = 212;
+        private const double PipX = 1392, PipY = 360, PipW = 408, PipH = 230;
 
         // Miniatura del juego: la compone Windows (DWM) sobre este hueco. Casi no usa CPU ni GPU.
         private void UpdatePip()
@@ -1026,7 +1034,7 @@ namespace ConsoleOverlay
                 {
                     FontSize = 20,
                     Foreground = MutedBrush,
-                    Margin = new Thickness(PipX, PipY + PipH + 24, 0, 0),
+                    Margin = new Thickness(PipX + 4, PipY + PipH + 20, 0, 0),
                     HorizontalAlignment = HorizontalAlignment.Left,
                     VerticalAlignment = VerticalAlignment.Top,
                     Visibility = Visibility.Collapsed
@@ -1046,7 +1054,7 @@ namespace ConsoleOverlay
                 TextBlock hint = new TextBlock
                 {
                     Text = PadText(Loc.T("←/→ ±10 s · {L2}/{R2} volumen · {Y} aleatorio · {R3} repetir")),
-                    FontSize = 15,
+                    FontSize = 17,
                     Foreground = MutedBrush,
                     Width = PipW,
                     TextWrapping = TextWrapping.Wrap,
@@ -1092,22 +1100,34 @@ namespace ConsoleOverlay
         private Canvas BuildRecentsPanel(ImageSource cover)
         {
             bool portrait = cover != null && cover.Height > cover.Width * 1.25;
-            double tw = 100, th = portrait ? 150 : 100, gap = 28, top = 56;
+            double tw = 100, th = portrait ? 150 : 100, gap = 26, top = 66;
+            double left0 = (PipW - (3 * tw + 2 * gap)) / 2;
+            double cardH = top + th + 68 + 24 + 26;
             recTiles = new List<Border>();
             recScales = new List<ScaleTransform>();
             recOn = new List<bool>();
             Canvas c = new Canvas
             {
                 Width = PipW,
-                Height = 330,
+                Height = cardH,
                 Margin = new Thickness(PipX, MusicY - 12, 0, 0),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top,
                 Visibility = Visibility.Collapsed
             };
+            Border glassCard = new Border
+            {
+                Width = PipW,
+                Height = cardH,
+                CornerRadius = new CornerRadius(20),
+                Background = RowBrush,
+                BorderBrush = GlassEdge,
+                BorderThickness = new Thickness(1.5)
+            };
+            c.Children.Add(glassCard);
             TextBlock head = new TextBlock { Text = Loc.T("Cambiar a"), FontSize = 22, Foreground = MutedBrush };
-            Canvas.SetLeft(head, 6);
-            Canvas.SetTop(head, 0);
+            Canvas.SetLeft(head, 26);
+            Canvas.SetTop(head, 18);
             c.Children.Add(head);
             for (int i = 0; i < Recents.Count && i < 3; i++)
             {
@@ -1145,7 +1165,7 @@ namespace ConsoleOverlay
                         Margin = new Thickness(6)
                     };
                 }
-                Canvas.SetLeft(tile, 12 + i * (tw + gap));
+                Canvas.SetLeft(tile, left0 + i * (tw + gap));
                 Canvas.SetTop(tile, top);
                 c.Children.Add(tile);
                 recTiles.Add(tile);
@@ -1158,13 +1178,13 @@ namespace ConsoleOverlay
                 FontWeight = FontWeights.SemiBold,
                 Foreground = TextBrush,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Width = PipW - 12
+                Width = PipW - 52
             };
-            Canvas.SetLeft(recName, 6);
+            Canvas.SetLeft(recName, 26);
             Canvas.SetTop(recName, top + th + 34);
             c.Children.Add(recName);
-            recWhen = new TextBlock { FontSize = 18, Foreground = MutedBrush, Width = PipW - 12 };
-            Canvas.SetLeft(recWhen, 6);
+            recWhen = new TextBlock { FontSize = 19, Foreground = MutedBrush, Width = PipW - 52 };
+            Canvas.SetLeft(recWhen, 26);
             Canvas.SetTop(recWhen, top + th + 68);
             c.Children.Add(recWhen);
             recPanel = c;
@@ -1391,7 +1411,7 @@ namespace ConsoleOverlay
             StackPanel info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
             musicSrc = new TextBlock { FontSize = 15, Foreground = MusicGreen, FontWeight = FontWeights.SemiBold };
             musicTitle = new TextBlock { FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = TextBrush, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 5, 0, 0) };
-            musicArtist = new TextBlock { FontSize = 17, Foreground = MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) };
+            musicArtist = new TextBlock { FontSize = 18, Foreground = MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) };
             musicSrc.VerticalAlignment = VerticalAlignment.Center;
             Shapes.Path volPath;
             UIElement volGlyph = FilledIcon("M3 9v6h4l5 5V4L7 9H3zM16.5 12A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z", 18, out volPath);
@@ -1899,7 +1919,8 @@ namespace ConsoleOverlay
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(0, 0, 4, 10)
             };
-            achPanel = new StackPanel();
+            // Altura fija de una página completa (6 filas de 114 + 10): con menos logros (filtros) la cabecera no se mueve.
+            achPanel = new StackPanel { MinHeight = AchVisible * 124 };
             Grid.SetRow(achPanel, 1);
             achTabs = new TextBlock
             {
@@ -2017,7 +2038,8 @@ namespace ConsoleOverlay
                 Foreground = TextBrush,
                 FontWeight = FontWeights.SemiBold
             });
-            galPos = new TextBlock { FontSize = 22, Foreground = MutedBrush, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            // Alineado con el borde derecho del contenido (mismo margen de 120 que la cabecera y las ayudas) y con la línea de las ayudas.
+            galPos = new TextBlock { FontSize = 22, Foreground = MutedBrush, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 120, 50) };
             body.Children.Add(top);
 
             galGrid = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
@@ -2042,6 +2064,20 @@ namespace ConsoleOverlay
             return canvas;
         }
 
+        // Ancho en píxeles de una imagen sin decodificarla entera (0 si no se puede saber).
+        private static int SourceWidth(string path)
+        {
+            try
+            {
+                BitmapDecoder dec = BitmapDecoder.Create(new Uri(path), BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+                return dec.Frames.Count > 0 ? dec.Frames[0].PixelWidth : 0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
         private static ImageSource LoadThumb(string path)
         {
             ImageSource img;
@@ -2054,7 +2090,8 @@ namespace ConsoleOverlay
                 BitmapImage bi = new BitmapImage();
                 bi.BeginInit();
                 bi.CacheOption = BitmapCacheOption.OnLoad;
-                bi.DecodePixelWidth = 440;
+                // El lienzo de 1920x1080 se escala en pantallas 4K: 440 px se veían borrosas. 720 px equilibran nitidez y memoria.
+                bi.DecodePixelWidth = 720;
                 bi.UriSource = new Uri(path);
                 bi.EndInit();
                 bi.Freeze();
@@ -2064,7 +2101,7 @@ namespace ConsoleOverlay
             {
                 img = null;
             }
-            if (thumbCache.Count > 120)
+            if (thumbCache.Count > 100)
             {
                 thumbCache.Clear();
             }
@@ -2429,7 +2466,11 @@ namespace ConsoleOverlay
                     BitmapImage bi = new BitmapImage();
                     bi.BeginInit();
                     bi.CacheOption = BitmapCacheOption.OnLoad;
-                    bi.DecodePixelWidth = 1920;
+                    // Resolución original (hasta 3840 px de ancho): a 1920 se veía borrosa en pantallas 4K.
+                    if (SourceWidth(item.Path) > 3840)
+                    {
+                        bi.DecodePixelWidth = 3840;
+                    }
                     bi.UriSource = new Uri(item.Path);
                     bi.EndInit();
                     bi.Freeze();
@@ -3332,6 +3373,12 @@ namespace ConsoleOverlay
             };
             b.MouseEnter += (s, ev) =>
             {
+                // Solo si el ratón se ha movido de verdad hace un momento: al reconstruir la pantalla, Windows avisa de
+                // «ratón encima» a la fila que queda bajo un puntero parado y el cursor saltaba a ella.
+                if ((DateTime.UtcNow - lastMouseMoveAt).TotalMilliseconds > 400)
+                {
+                    return;
+                }
                 selected = captured;
                 UpdateSelection();
             };
@@ -3806,7 +3853,10 @@ namespace ConsoleOverlay
                     UiFeedback.Play(UiFeedback.Kind.Move);
                     break;
                 case "accept":
-                    UiFeedback.Play(UiFeedback.Kind.Accept);
+                    if (!achMode)
+                    {
+                        UiFeedback.Play(UiFeedback.Kind.Accept); // en logros aceptar no hace nada: sin sonido
+                    }
                     break;
                 case "cancel":
                     UiFeedback.Play(UiFeedback.Kind.Back);
@@ -4014,8 +4064,31 @@ namespace ConsoleOverlay
             }
         }
 
+        // Mantiene el menú delante cuando otra app (p. ej. Spotify al abrirse o cerrarse) reparte el foco: sin esto el menú
+        // desaparecía un instante hasta la siguiente reactivación.
+        public void KeepOnTop()
+        {
+            try
+            {
+                IntPtr h = new WindowInteropHelper(this).Handle;
+                if (h == IntPtr.Zero)
+                {
+                    return;
+                }
+                NativeMethods.RaiseTopmostNoActivate(h);
+                if (!NoFocus && !NativeMethods.IsForeground(h))
+                {
+                    Activate();
+                }
+            }
+            catch
+            {
+            }
+        }
+
         private void OnRendered(object sender, EventArgs e)
         {
+            Diag.Done("Menú visible desde que se pulsa el botón");
             Reveal();
             Dispatcher.BeginInvoke(new Action(() =>
             {

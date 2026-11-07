@@ -4,5 +4,7 @@ obj/
 *.user
 *.pext
 *_backup*
-mpv/
+
+empaquetar/
+out/
 docs/*.mp4

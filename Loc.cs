@@ -30,7 +30,13 @@ namespace ConsoleOverlay
             new[] { "it", "Italiano" },
             new[] { "ru", "Русский" },
             new[] { "zh", "简体中文" },
-            new[] { "ja", "日本語" }
+            new[] { "ja", "日本語" },
+            new[] { "pl", "Polski (beta)" },
+            new[] { "tr", "Türkçe (beta)" },
+            new[] { "ko", "한국어 (beta)" },
+            new[] { "nl", "Nederlands (beta)" },
+            new[] { "uk", "Українська (beta)" },
+            new[] { "zht", "繁體中文 (beta)" }
         };
 
         // Idioma de la propia aplicación (Playnite), p. ej. "es_ES". Lo informa el plugin al arrancar.
@@ -84,6 +90,10 @@ namespace ConsoleOverlay
                 try
                 {
                     string h = (HostLanguage ?? "").Trim().ToLowerInvariant();
+                    if (IsTraditionalChinese(h))
+                    {
+                        h = "zht";
+                    }
                     int cut = h.IndexOfAny(new[] { '_', '-' });
                     if (cut > 0)
                     {
@@ -101,7 +111,9 @@ namespace ConsoleOverlay
                 {
                     try
                     {
-                        c = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
+                        c = IsTraditionalChinese(CultureInfo.CurrentUICulture.Name.ToLowerInvariant())
+                            ? "zht"
+                            : CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
                     }
                     catch
                     {
@@ -117,6 +129,12 @@ namespace ConsoleOverlay
                 }
             }
             return c == "gl" || c == "ca" ? "es" : "en";
+        }
+
+        // zh-TW, zh-HK, zh-MO, zh-Hant…: chino tradicional.
+        private static bool IsTraditionalChinese(string name)
+        {
+            return name.StartsWith("zh") && (name.Contains("tw") || name.Contains("hk") || name.Contains("mo") || name.Contains("hant"));
         }
 
         public static string T(string es)
