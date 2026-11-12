@@ -322,8 +322,10 @@ namespace ConsoleOverlay
             {
                 return;
             }
+            // Solo al poner «siempre encima» se muestra la ventana; al quitarlo no, para no sacar de la bandeja del sistema
+            // (o de la barra de tareas) un Playnite que el usuario tiene minimizado u oculto a propósito.
             SetWindowPos(hwnd, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                SWP_NOMOVE | SWP_NOSIZE | (topmost ? SWP_SHOWWINDOW : 0));
         }
 
         // Quita el "siempre encima" a la ventana dejándola en lo alto del plano normal, sin activarla.

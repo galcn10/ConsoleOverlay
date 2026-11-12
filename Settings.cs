@@ -29,6 +29,7 @@ namespace ConsoleOverlay
         private string capturePreset = "Ninguno";
         private string screenshotKeys = "";
         private string clipKeys = "";
+        private string recordKeys = "";
         private string galleryKeys = "";
         private bool showBattery = true;
         private bool showLivePreview = true;
@@ -172,6 +173,7 @@ namespace ConsoleOverlay
         }
         public string ScreenshotKeys { get => screenshotKeys; set => SetValue(ref screenshotKeys, value); }
         public string ClipKeys { get => clipKeys; set => SetValue(ref clipKeys, value); }
+        public string RecordKeys { get => recordKeys; set => SetValue(ref recordKeys, value); }
         public string GalleryKeys { get => galleryKeys; set => SetValue(ref galleryKeys, value); }
 
         [DontSerialize]
@@ -188,26 +190,31 @@ namespace ConsoleOverlay
                 case "GameHQ":
                     ScreenshotKeys = "Ctrl+Shift+S";
                     ClipKeys = "Ctrl+Shift+E";
+                    RecordKeys = "";
                     GalleryKeys = "Ctrl+Shift+G";
                     break;
                 case "NVIDIA App":
                     ScreenshotKeys = "Alt+F1";
                     ClipKeys = "Alt+F10";
+                    RecordKeys = "Alt+F9";
                     GalleryKeys = "";
                     break;
                 case "Steam":
                     ScreenshotKeys = "F12";
                     ClipKeys = "";
+                    RecordKeys = "";
                     GalleryKeys = "";
                     break;
                 case "Xbox Game Bar":
                     ScreenshotKeys = "Win+Alt+PrtScn";
                     ClipKeys = "Win+Alt+G";
+                    RecordKeys = "Win+Alt+R";
                     GalleryKeys = "";
                     break;
                 case "Ninguno":
                     ScreenshotKeys = "";
                     ClipKeys = "";
+                    RecordKeys = "";
                     GalleryKeys = "";
                     break;
             }
@@ -310,6 +317,7 @@ namespace ConsoleOverlay
                 CapturePreset = string.IsNullOrEmpty(o.CapturePreset) ? "Ninguno" : o.CapturePreset;
                 ScreenshotKeys = o.ScreenshotKeys ?? "";
                 ClipKeys = o.ClipKeys ?? "";
+                RecordKeys = o.RecordKeys ?? "";
                 GalleryKeys = o.GalleryKeys ?? "";
             }
             finally
@@ -356,6 +364,10 @@ namespace ConsoleOverlay
             if (!string.IsNullOrWhiteSpace(ClipKeys) && !KeyChord.IsValid(ClipKeys))
             {
                 errors.Add(Loc.T("El atajo de guardar clip no es válido. Ejemplo: Ctrl+Shift+E."));
+            }
+            if (!string.IsNullOrWhiteSpace(RecordKeys) && !KeyChord.IsValid(RecordKeys))
+            {
+                errors.Add(Loc.T("El atajo de grabación no es válido. Ejemplo: Win+Alt+R."));
             }
             if (!string.IsNullOrWhiteSpace(GalleryKeys) && !KeyChord.IsValid(GalleryKeys))
             {

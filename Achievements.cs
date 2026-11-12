@@ -205,6 +205,7 @@ namespace ConsoleOverlay
                     }
                     Native.sqlite3_finalize(stmt);
                     stmt = IntPtr.Zero;
+                    MergeLanguageDuplicates(result, log);
                     try
                     {
                         ReadTrophies(db, gameId, result, log);
@@ -238,6 +239,65 @@ namespace ConsoleOverlay
             {
                 log("Logros: no se pudieron leer (" + ex.GetType().Name + ": " + ex.Message + ")");
                 return null;
+            }
+        }
+
+        // Algunas bases guardan el mismo logro dos veces (una por idioma, con otro nombre API): mismo icono, mismo estado,
+        // misma fecha de desbloqueo y mismo porcentaje. Se deja solo uno (el primero, o el que tenga descripción).
+        private static void MergeLanguageDuplicates(List<AchievementItem> list, Action<string> log)
+        {
+            try
+            {
+                Dictionary<string, int> firstOf = new Dictionary<string, int>();
+                Dictionary<string, int> counts = new Dictionary<string, int>();
+                List<int> drop = new List<int>();
+                Func<AchievementItem, string> keyOf = x => string.IsNullOrEmpty(x.IconPath) ? null :
+                    x.IconPath + "|" + x.Unlocked + "|" + (x.UnlockTime.HasValue ? x.UnlockTime.Value.Ticks : 0) + "|" +
+                    (x.Percent.HasValue ? x.Percent.Value.ToString("R") : "-");
+                foreach (AchievementItem ax in list)
+                {
+                    string k0 = keyOf(ax);
+                    if (k0 != null)
+                    {
+                        int n0;
+                        counts.TryGetValue(k0, out n0);
+                        counts[k0] = n0 + 1;
+                    }
+                }
+                for (int i = 0; i < list.Count; i++)
+                {
+                    AchievementItem it = list[i];
+                    string key = keyOf(it);
+                    // Solo parejas exactas: si más de dos logros comparten todo (p. ej. un icono genérico de «bloqueado»), no son copias.
+                    if (key == null || counts[key] != 2)
+                    {
+                        continue;
+                    }
+                    int j;
+                    if (firstOf.TryGetValue(key, out j))
+                    {
+                        if (string.IsNullOrWhiteSpace(list[j].Description) && !string.IsNullOrWhiteSpace(it.Description))
+                        {
+                            list[j] = it;
+                        }
+                        drop.Add(i);
+                    }
+                    else
+                    {
+                        firstOf[key] = i;
+                    }
+                }
+                if (drop.Count > 0)
+                {
+                    for (int k = drop.Count - 1; k >= 0; k--)
+                    {
+                        list.RemoveAt(drop[k]);
+                    }
+                    log("Logros: " + drop.Count + " duplicados de idioma descartados (mismo icono, estado, fecha y porcentaje).");
+                }
+            }
+            catch
+            {
             }
         }
 

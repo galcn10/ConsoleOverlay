@@ -287,6 +287,15 @@
             <Grid Tag="row" Margin="0,0,0,16">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <StackPanel Margin="0,0,16,0">
+                    <TextBlock Text="Grabar vídeo:" FontSize="14" VerticalAlignment="Center" />
+                </StackPanel>
+                <ContentControl Grid.Column="1" VerticalAlignment="Top">
+                    <TextBox Width="160" Text="{Binding RecordKeys, UpdateSourceTrigger=PropertyChanged}" />
+                </ContentControl>
+            </Grid>
+            <Grid Tag="row" Margin="0,0,0,16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel Margin="0,0,16,0">
                     <TextBlock Text="Ver capturas:" FontSize="14" VerticalAlignment="Center" />
                 </StackPanel>
                 <ContentControl Grid.Column="1" VerticalAlignment="Top">

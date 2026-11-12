@@ -62,7 +62,10 @@ namespace ConsoleOverlay
             RemoveAdmin,
             OpenMusic,
             SwitchGame,
-            Music
+            Music,
+            Record,
+            Downloads,
+            DoneNotice
         }
 
         private static readonly string[] LauncherNames =
@@ -337,6 +340,21 @@ namespace ConsoleOverlay
         {
             gameStartedAt = DateTime.UtcNow;
             browsing = false;
+            Task.Run(() =>
+            {
+                try
+                {
+                    if (Cuc.Available)
+                    {
+                        Cuc.ClearDone();
+                        Cuc.Forget();
+                        Cuc.Read();
+                    }
+                }
+                catch
+                {
+                }
+            });
             if (settings.ShowMusic && autoMusicApps == null)
             {
                 Task.Run(() => { try { GetMusicApps(); WarmMusicIcons(); } catch { } }); // detección de reproductores e iconos en segundo plano
@@ -459,6 +477,28 @@ namespace ConsoleOverlay
             }
         }
 
+        // Integración opcional con Console Update Center (solo si está instalado; si no, no hace nada).
+        private CucBridge cucBridge;
+        private CucBridge Cuc
+        {
+            get
+            {
+                CucBridge b = cucBridge;
+                if (b == null)
+                {
+                    b = new CucBridge(PlayniteApi);
+                    cucBridge = b;
+                }
+                return b;
+            }
+        }
+
+        // true mientras el panel de Console Update Center está abierto: el overlay no reacciona a nada del mando.
+        private bool CucPanelOpen()
+        {
+            return Cuc.IsPanelOpen;
+        }
+
         // Mando: navegación del menú y botón PS / Guide (pulsación corta y larga).
         public override void OnControllerButtonStateChanged(OnControllerButtonStateChangedArgs args)
         {
@@ -466,6 +506,22 @@ namespace ConsoleOverlay
             {
                 string name = args.Button.ToString();
                 bool pressed = args.State == ControllerInputState.Pressed;
+
+                if (CucPanelOpen())
+                {
+                    // Con el panel de Console Update Center abierto el mando es suyo: el overlay lo ignora por completo.
+                    lock (guideLock)
+                    {
+                        guideDown = false;
+                        guideFired = true;
+                        if (guideTimer != null)
+                        {
+                            guideTimer.Dispose();
+                            guideTimer = null;
+                        }
+                    }
+                    return;
+                }
 
                 if (name == "Guide")
                 {
@@ -1046,11 +1102,32 @@ namespace ConsoleOverlay
         }
 
         // Vigilante: si el juego pausado desaparece (cierre, fallo), limpia el estado del menú.
+        // Mientras se juega, vigila las descargas de Console Update Center para poder avisar de las terminadas en el menú.
+        private void PollCuc()
+        {
+            try
+            {
+                bool playing;
+                lock (gate)
+                {
+                    playing = currentGame != null;
+                }
+                if (playing && Cuc.Available)
+                {
+                    Cuc.Read();
+                }
+            }
+            catch
+            {
+            }
+        }
+
         private void WatchdogTick()
         {
             try
             {
                 PauseTracker.Prune();
+                PollCuc();
                 List<int> pids;
                 bool open;
                 lock (gate)
@@ -1192,7 +1269,7 @@ namespace ConsoleOverlay
         {
             Diag.Enabled = settings.Diagnostics;
             Diag.Begin();
-            if (switching)
+            if (switching || CucPanelOpen())
             {
                 return;
             }
@@ -1251,7 +1328,8 @@ namespace ConsoleOverlay
                 {
                     // Sin juego en marcha el plugin no actúa (como una consola: solo dentro del juego),
                     // salvo que el usuario lo active en Ajustes.
-                    if (settings.PowerMenuOutsideGame)
+                    // Con Console Update Center instalado, Guía sobre una carátula es suya: solo la pulsación larga abre Energía.
+                    if (settings.PowerMenuOutsideGame && (longPress || !Cuc.Available))
                     {
                         ShowMenuLoop(MenuPage.Power, false);
                     }
@@ -1397,6 +1475,13 @@ namespace ConsoleOverlay
                         SendCaptureKeys(settings.ClipKeys, "clip");
                         return;
 
+                    case MenuAction.Record:
+                        CoverIfBrowsing();
+                        CloseMenuWindow(true);
+                        ReturnToGame();
+                        SendCaptureKeys(settings.RecordKeys, "grabación");
+                        return;
+
                     case MenuAction.Gallery:
                         CoverIfBrowsing();
                         CloseMenuWindow(true);
@@ -1488,6 +1573,16 @@ namespace ConsoleOverlay
 
                     case MenuAction.Achievements:
                         ShowAchievementsPage();
+                        page = MenuPage.Main;
+                        break;
+
+                    case MenuAction.Downloads:
+                        OpenDownloadsPanel();
+                        page = MenuPage.Main;
+                        break;
+
+                    case MenuAction.DoneNotice:
+                        Cuc.ClearDone();
                         page = MenuPage.Main;
                         break;
 
@@ -2772,6 +2867,147 @@ namespace ConsoleOverlay
             });
         }
 
+        // Filas de Console Update Center: avisos de actualizaciones terminadas y «Descargas» con el estado de las descargas.
+        private void AddCucRows(List<MenuEntry> items, List<MenuAction> map)
+        {
+            try
+            {
+                if (!Cuc.Available)
+                {
+                    return;
+                }
+                CucStatus st = Cuc.Read();
+                List<CucDone> done = Cuc.Done();
+                if (done.Count > 0)
+                {
+                    string names = string.Join(", ", done.Select(d => d.Name).Distinct().Take(3));
+                    if (done.Select(d => d.Name).Distinct().Count() > 3)
+                    {
+                        names += "…";
+                    }
+                    items.Add(new MenuEntry("check", Loc.T("Actualización completada")) { Desc = Loc.T("{0} · Listo para jugar", names) });
+                    map.Add(MenuAction.DoneNotice);
+                }
+                Game cg;
+                lock (gate)
+                {
+                    cg = currentGame;
+                }
+                List<CucItem> active = CucBridge.Active(st);
+                CucItem mine = CucBridge.ForGame(st, cg);
+                string right = null;
+                string desc = Loc.T("Ver y gestionar las actualizaciones");
+                if (active.Count == 1)
+                {
+                    CucItem a = active[0];
+                    string eta = CucBridge.FormatEta(a.SecondsLeft);
+                    int pct = (int)Math.Round(Math.Max(0, Math.Min(1, a.Progress)) * 100);
+                    right = pct + " %" + (eta != null ? " · " + eta : "");
+                    desc = eta != null ? Loc.T("Descargando {0} · {1} % · {2}", a.Name, pct, eta)
+                                       : Loc.T("Descargando {0} · {1} %", a.Name, pct);
+                }
+                else if (active.Count > 1)
+                {
+                    double avg = active.Average(a => Math.Max(0, Math.Min(1, a.Progress)));
+                    right = Loc.T("{0} descargas", active.Count);
+                    desc = Loc.T("Descargando {0} · {1} %", string.Join(", ", active.Take(2).Select(a => a.Name)) + (active.Count > 2 ? "…" : ""), (int)Math.Round(avg * 100));
+                }
+                else if (mine != null)
+                {
+                    right = Loc.T("Actualización pendiente");
+                    desc = string.Equals(mine.Status, "Paused", StringComparison.OrdinalIgnoreCase)
+                        ? Loc.T("Este juego tiene una actualización en pausa")
+                        : Loc.T("Este juego tiene una actualización pendiente");
+                }
+                else if (st != null && st.Pending > 0)
+                {
+                    right = Loc.T("{0} pendientes", st.Pending);
+                }
+                if (active.Count > 0 && mine != null && !active.Contains(mine))
+                {
+                    desc += " · " + Loc.T("Este juego tiene una actualización pendiente");
+                }
+                items.Add(new MenuEntry("download", Loc.T("Descargas")) { Right = right, Desc = desc });
+                map.Add(MenuAction.Downloads);
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "No se pudieron añadir las filas de Console Update Center");
+            }
+        }
+
+        // Abre el panel de Console Update Center sobre Playnite y, al cerrarlo (B o Guía), devuelve el control al menú del overlay.
+        private void OpenDownloadsPanel()
+        {
+            Game cg;
+            lock (gate)
+            {
+                cg = currentGame;
+            }
+            bool curtainWas = curtain != null;
+            using (ManualResetEventSlim closed = new ManualResetEventSlim(false))
+            {
+                CloseMenuWindow();
+                bool opened = false;
+                try
+                {
+                    PlayniteApi.MainView.UIDispatcher.Invoke(() =>
+                    {
+                        opened = Cuc.OpenPanel(cg != null ? (Guid?)cg.Id : null, () => closed.Set());
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "Error al abrir Descargas");
+                }
+                if (opened)
+                {
+                    for (int i = 0; i < 30 && !Cuc.IsPanelOpen && !closed.IsSet; i++)
+                    {
+                        Thread.Sleep(100);
+                    }
+                    if (Cuc.IsPanelOpen)
+                    {
+                        HideCurtain(); // el telón taparía el panel
+                        logger.Info("Descargas: panel de Console Update Center abierto desde el menú.");
+                        while (!closed.Wait(400))
+                        {
+                            bool gone;
+                            lock (gate)
+                            {
+                                gone = currentGame == null;
+                            }
+                            if (gone)
+                            {
+                                Cuc.ClosePanel();
+                                break;
+                            }
+                            if (!Cuc.IsPanelOpen && !closed.Wait(1500))
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    else if (!closed.IsSet)
+                    {
+                        opened = false;
+                    }
+                }
+                if (!opened)
+                {
+                    Notify(Loc.T("No se pudo abrir el panel de Descargas."));
+                }
+            }
+            if (curtainWas || curtain != null)
+            {
+                ShowCurtain(gameHwnd);
+            }
+            // La B (o Guía) que cerró el panel no debe llegar al menú que vuelve a abrirse.
+            WaitPadReleased(1500);
+            Thread.Sleep(150);
+            Cuc.Read();
+        }
+
         private MenuAction ShowMainPage(MenuAction startOn)
         {
             List<MenuEntry> items = new List<MenuEntry>();
@@ -2787,6 +3023,11 @@ namespace ConsoleOverlay
             {
                 items.Add(new MenuEntry("video", Loc.T("Guardar clip")) { Desc = Loc.T("Guarda los últimos segundos de juego") });
                 map.Add(MenuAction.Clip);
+            }
+            if (KeyChord.IsValid(settings.RecordKeys))
+            {
+                items.Add(new MenuEntry("record", Loc.T("Iniciar/detener grabación")) { Desc = Loc.T("Empieza o termina de grabar la partida") });
+                map.Add(MenuAction.Record);
             }
             List<CaptureItem> caps = GetCaptures();
             if (caps != null && caps.Count > 0)
@@ -2807,6 +3048,7 @@ namespace ConsoleOverlay
                 items.Add(new MenuEntry("trophy", Loc.T("Logros")) { Right = got + " / " + achs.Count, Desc = Loc.T("Logros del juego actual"), Platinum = achs.Count > 0 && (got == achs.Count || achs.Any(x => x.Unlocked && MenuWindow.TrophyTier(x) >= 3)) });
                 map.Add(MenuAction.Achievements);
             }
+            AddCucRows(items, map);
             if (settings.ShowMusic)
             {
                 if (lastMusicPlayer != settings.MusicPlayer)
@@ -3649,7 +3891,7 @@ namespace ConsoleOverlay
                         {
                             int got = achList.Count(x => x.Unlocked);
                             achFraction = achList.Count > 0 ? (double)got / achList.Count : 0;
-                            achSummary = got + " de " + achList.Count + " · " + (int)Math.Round(achFraction * 100) + " %";
+                            achSummary = Loc.T("{0} de {1} · {2} %", got, achList.Count, (int)Math.Round(achFraction * 100));
                         }
 
                         w = activeMenu;
@@ -3689,6 +3931,14 @@ namespace ConsoleOverlay
                             created.CloseMusicInline = CloseMusicInline;
                             created.MusicVolumeChange = delta => ChangeMusicVolume(created, delta);
                             created.NoFocus = noFocus;
+                            created.UserLeft = () =>
+                            {
+                                try { if (curtain != null) { curtain.Topmost = false; } } catch { }
+                            };
+                            created.UserBack = () =>
+                            {
+                                try { if (curtain != null) { curtain.Topmost = true; } } catch { }
+                            };
                             created.PipFallbackLoader = () => LoadPipFallback(backdrop);
                             if (settings.ShowLivePreview && gameHwnd != IntPtr.Zero && NativeMethods.IsWindow(gameHwnd))
                             {
@@ -4110,6 +4360,7 @@ namespace ConsoleOverlay
 
             // Antes de traer Playnite al frente: la ventana en primer plano es, casi seguro, la del juego.
             foregroundPid = CaptureForegroundPid();
+            CapturePlaynitePrior();
 
             List<int> pids = FindGamePids();
             if (pids.Count == 0)
@@ -4749,17 +5000,106 @@ namespace ConsoleOverlay
             }
             foregroundPid = 0;
             DeleteRecovery();
+            ApplyPlaynitePrior();
         }
 
         // Finalizar juego: reanuda (un proceso pausado no puede cerrarse solo), cierre limpio y, si no responde, forzado.
+        // Estado de la ventana de Playnite antes de que el plugin la traiga al frente (modo Escritorio):
+        // 0 = visible, 1 = minimizada en la barra de tareas, 2 = oculta (minimizar a la bandeja del sistema).
+        // Al terminar se deja igual que estaba, para respetar la opción «minimizar a la bandeja» de Playnite.
+        private volatile int playnitePrior;
+
+        private bool IsDesktopMode()
+        {
+            try
+            {
+                return PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Desktop;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void CapturePlaynitePrior()
+        {
+            try
+            {
+                playnitePrior = 0;
+                if (!IsDesktopMode())
+                {
+                    return;
+                }
+                IntPtr pn = GetPlayniteWindow();
+                if (pn == IntPtr.Zero || !NativeMethods.IsWindow(pn))
+                {
+                    return;
+                }
+                playnitePrior = !NativeMethods.IsWindowVisible(pn) ? 2 : (NativeMethods.IsMinimized(pn) ? 1 : 0);
+                if (playnitePrior != 0)
+                {
+                    logger.Info("Playnite estaba " + (playnitePrior == 2 ? "oculto (bandeja del sistema)" : "minimizado") + "; se dejará así al terminar.");
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void ApplyPlaynitePrior()
+        {
+            int prior = playnitePrior;
+            playnitePrior = 0;
+            if (prior == 0)
+            {
+                return;
+            }
+            try
+            {
+                IntPtr pn = playniteHwnd != IntPtr.Zero && NativeMethods.IsWindow(playniteHwnd) ? playniteHwnd : GetPlayniteWindow();
+                if (pn == IntPtr.Zero)
+                {
+                    return;
+                }
+                if (prior == 2)
+                {
+                    // Primero por WPF (así el icono de la bandeja de Playnite lo vuelve a mostrar) y luego por Windows.
+                    PlayniteApi.MainView.UIDispatcher.Invoke(() =>
+                    {
+                        Window w = Application.Current != null ? Application.Current.MainWindow : null;
+                        if (w != null)
+                        {
+                            w.Hide();
+                        }
+                    });
+                    NativeMethods.ShowWindow(pn, 0);
+                }
+                else
+                {
+                    NativeMethods.MinimizeNoActivate(pn);
+                }
+                logger.Info("Playnite devuelto a su estado anterior (" + (prior == 2 ? "oculto" : "minimizado") + ").");
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "No se pudo devolver Playnite a su estado anterior");
+            }
+        }
+
         // Finalizar el juego detrás de una pantalla oscura con la portada y «Cerrando…»: mientras el juego se cierra y Playnite vuelve
         // a pintarse no se ve el último fotograma congelado ni parpadeos, y la pantalla se desvanece cuando Playnite ya está estable.
         private void EndGameWithSplash()
         {
             Game g;
+            bool menuWasOpen;
             lock (gate)
             {
                 g = currentGame;
+                menuWasOpen = menuOpen;
+            }
+            if (!menuWasOpen)
+            {
+                CapturePlaynitePrior();
             }
             bool hadGame = g != null && pausedPidsOrGame();
             SwitchSplash splash = null;
@@ -5028,6 +5368,17 @@ namespace ConsoleOverlay
             }
             if (!fullscreen && !endedByMenu)
             {
+                return;
+            }
+            if (!fullscreen && playnitePrior != 0)
+            {
+                // Modo Escritorio con Playnite minimizado u oculto (bandeja) antes de abrir el menú: no se trae al frente, se deja como estaba.
+                endedByMenu = false;
+                Task.Run(() =>
+                {
+                    Thread.Sleep(900);
+                    ApplyPlaynitePrior();
+                });
                 return;
             }
             int gen = Interlocked.Increment(ref restoreGen);

@@ -1,5 +1,28 @@
 AddonId: ConsoleOverlay_galcn10
 Packages:
+  - Version: 1.3.5
+    RequiredApiVersion: 6.15.0
+    ReleaseDate: 2026-11-12
+    PackageUrl: https://github.com/galcn10/ConsoleOverlay/releases/download/v1.3.5/ConsoleOverlay_galcn10_1_3_5.pext
+    Changelog:
+      - Fixed: some texts appeared in Spanish in every language (achievement tabs, the achievements summary and several menu descriptions). They are now translated.
+      - New "Start/stop recording" row and shortcut setting (e.g. Win+Alt+R for Xbox Game Bar, Alt+F9 for NVIDIA App).
+      - Fixed: with the menu open, Alt+Tab to another window now works; the menu and its dark curtain no longer stay on top of it.
+      - Fixed: the same achievement could appear twice (once per language) in the list.
+  - Version: 1.3.4
+    RequiredApiVersion: 6.15.0
+    ReleaseDate: 2026-11-10
+    PackageUrl: https://github.com/galcn10/ConsoleOverlay/releases/download/v1.3.4/ConsoleOverlay_galcn10_1_3_4.pext
+    Changelog:
+      - New optional integration with Console Update Center (only if it is installed): a "Downloads" row in the menu shows the download in progress and pending updates, and opens its panel; closing the panel returns to the overlay menu.
+      - Updates finished while you play are shown in the menu as "Update completed".
+      - The overlay ignores the controller while the Console Update Center panel is open, and with it installed the Guide button over a game cover is left to it.
+  - Version: 1.3.3
+    RequiredApiVersion: 6.15.0
+    ReleaseDate: 2026-11-09
+    PackageUrl: https://github.com/galcn10/ConsoleOverlay/releases/download/v1.3.3/ConsoleOverlay_galcn10_1_3_3.pext
+    Changelog:
+      - Desktop mode: Playnite stays minimized to the system tray / taskbar after closing a game or using the overlay, instead of popping up in the taskbar.
   - Version: 1.3.2
     RequiredApiVersion: 6.15.0
     ReleaseDate: 2026-10-30

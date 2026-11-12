@@ -378,6 +378,8 @@ namespace ConsoleOverlay
 
             PreviewKeyDown += OnKeyDown;
             PreviewMouseMove += OnRealMouseMove;
+            Deactivated += OnMenuDeactivated;
+            Activated += OnMenuActivated;
             ContentRendered += OnRendered;
             Closed += (s, e) =>
             {
@@ -3203,6 +3205,8 @@ namespace ConsoleOverlay
                 case "power": return Make("#EC4899");
                 case "music": return Make("#22C55E");
                 case "check": return Make("#22C55E");
+                case "download": return Make("#0EA5E9");
+                case "record": return Make("#F43F5E");
                 case "x": return Make("#EF4444");
                 case "arrow-left": return Make("#64748B");
                 case "moon": return Make("#6366F1");
@@ -4066,6 +4070,79 @@ namespace ConsoleOverlay
 
         // Mantiene el menú delante cuando otra app (p. ej. Spotify al abrirse o cerrarse) reparte el foco: sin esto el menú
         // desaparecía un instante hasta la siguiente reactivación.
+        // Alt+Tab (o cualquier cambio de ventana) con el menú abierto: la ventana es «siempre encima» y tapaba lo que el
+        // usuario elegía. Si el foco pasa a otra aplicación (o al juego), el menú se baja para dejarla ver y vuelve delante
+        // cuando se activa de nuevo (con Guía se cierra y se vuelve al juego como siempre).
+        private bool loweredByUser;
+        public Action UserLeft;   // el usuario pasó a otra ventana: el plugin baja también el telón
+        public Action UserBack;   // el menú vuelve a estar activo: el plugin sube el telón de nuevo
+
+        private void OnMenuActivated(object sender, EventArgs e)
+        {
+            try
+            {
+                if (loweredByUser)
+                {
+                    loweredByUser = false;
+                    Action back = UserBack;
+                    if (back != null)
+                    {
+                        back();
+                    }
+                    Topmost = false;
+                    Topmost = true; // queda por encima del telón
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void OnMenuDeactivated(object sender, EventArgs e)
+        {
+            try
+            {
+                if (NoFocus || !IsLoaded)
+                {
+                    return;
+                }
+                DispatcherTimer t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+                t.Tick += (s2, e2) =>
+                {
+                    t.Stop();
+                    try
+                    {
+                        if (IsActive || !IsVisible)
+                        {
+                            return;
+                        }
+                        int pid = ProcessGuard.GetForegroundPid();
+                        if (pid == 0 || pid == System.Diagnostics.Process.GetCurrentProcess().Id)
+                        {
+                            return; // otra ventana del propio Playnite o del plugin
+                        }
+                        if (Topmost)
+                        {
+                            loweredByUser = true;
+                            Action left = UserLeft;
+                            if (left != null)
+                            {
+                                left();
+                            }
+                            Topmost = false;
+                        }
+                    }
+                    catch
+                    {
+                    }
+                };
+                t.Start();
+            }
+            catch
+            {
+            }
+        }
+
         public void KeepOnTop()
         {
             try

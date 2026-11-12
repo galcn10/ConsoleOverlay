@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.5
+
+- Fixed: several texts were shown in Spanish in every language (the achievement tabs All / Unlocked / Locked, the "0 of 46" summary, the "Very rare" label, the descriptions under some menu rows and the "no audio track" message). They are now translated in all 15 languages.
+- New "Start/stop recording" row in the menu, with its own shortcut setting (Settings > Screenshots & clips > Record video). The presets fill it in: Win+Alt+R for Xbox Game Bar and Alt+F9 for NVIDIA App; leave it empty to hide the row.
+- Fixed: with the menu open, Alt+Tab (or clicking another window) could not bring another app to the front because the menu and its dark curtain stayed on top. They now step back when you switch to another window and come back when you return to the menu.
+- Fixed: the same achievement could appear twice, once per language, when the achievements database stored both. Exact pairs (same icon, state, unlock date and percentage) are merged into one.
+
+## 1.3.4
+
+- New integration with **Console Update Center** (optional; nothing changes if it is not installed). It is found by its Id and used through its integration API (version 1), without referencing its dll.
+  - New "Downloads" row in the menu: shows the download in progress ("Downloading <game> · 45 % · 3 min"), the number of pending updates, or a notice when the current game has an update pending or on hold. Selecting it opens the Console Update Center panel for the current game.
+  - Closing the panel (B or Guide) returns to the overlay menu, with the cursor on "Downloads", instead of leaving you on the Playnite hub.
+  - Updates that finish while you play appear in the menu as "Update completed · <game> · Ready to play" until you dismiss them.
+  - While the Console Update Center panel is open the overlay ignores the controller completely.
+  - Guide button split: inside a game and when returning to a game from Playnite it belongs to Console Overlay; over a game cover without a running game it belongs to Console Update Center (the optional "power menu outside a game" only opens with a long press when it is installed).
+- The new texts are translated into all 15 languages.
+
+## 1.3.3
+
+- Fixed (Desktop mode): if Playnite is set to minimize to the system tray (or the taskbar) when a game starts, it now stays that way after the game closes or after you use the overlay, instead of popping up in the taskbar.
+
 ## 1.3.2
 
 - Returning to a game that shows "Not responding" (it often happens right after resuming it): the plugin now retries for up to 3 seconds before giving up, instead of leaving you on Playnite.
