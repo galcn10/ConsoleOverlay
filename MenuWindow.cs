@@ -2705,7 +2705,11 @@ namespace ConsoleOverlay
                         viewMedia.Pause();
                         mediaPlaying = false;
                     }
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(item.Path) { UseShellExecute = true });
+                    Func<string, bool> ext = OpenExternalVideo;
+                    if (ext == null || !ext(item.Path))
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(item.Path) { UseShellExecute = true });
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -4010,6 +4014,7 @@ namespace ConsoleOverlay
             }
             done = true;
             Result = index;
+            ClosedOnIndex = recFocus >= 0 ? -1 : selected;
             h(index);
         }
 
@@ -4076,6 +4081,18 @@ namespace ConsoleOverlay
         private bool loweredByUser;
         public Action UserLeft;   // el usuario pasó a otra ventana: el plugin baja también el telón
         public Action UserBack;   // el menú vuelve a estar activo: el plugin sube el telón de nuevo
+        public int ClosedOnIndex = -1;          // fila de la pantalla principal en la que estaba el cursor al cerrarse el menú
+        public Func<string, bool> OpenExternalVideo; // abre un clip en el reproductor del sistema (el plugin oculta el menú mientras tanto)
+        public void HideForExternal() { Visibility = Visibility.Hidden; }
+        public void ShowAfterExternal()
+        {
+            Visibility = Visibility.Visible;
+            Topmost = false;
+            Topmost = true;
+            Activate();
+        }
+        public Func<int, bool> IsGameProcess; // true si el PID es del juego pausado
+        public Action LeftToGame;             // el usuario pasó a la ventana del propio juego: se reanuda y se cierra el menú
 
         private void OnMenuActivated(object sender, EventArgs e)
         {
@@ -4120,6 +4137,15 @@ namespace ConsoleOverlay
                         if (pid == 0 || pid == System.Diagnostics.Process.GetCurrentProcess().Id)
                         {
                             return; // otra ventana del propio Playnite o del plugin
+                        }
+                        Func<int, bool> isGame = IsGameProcess;
+                        Action toGame = LeftToGame;
+                        if (isGame != null && toGame != null && isGame(pid))
+                        {
+                            // El juego está suspendido: no puede procesar nada (ni cerrarse con la X). Si el usuario pasa a su
+                            // ventana, se entiende como «volver al juego».
+                            toGame();
+                            return;
                         }
                         if (Topmost)
                         {

@@ -4,7 +4,7 @@
     <TargetFramework>net462</TargetFramework>
     <AssemblyName>ConsoleOverlay</AssemblyName>
     <RootNamespace>ConsoleOverlay</RootNamespace>
-    <Version>1.3.5</Version>
+    <Version>1.3.6</Version>
     <Authors>galcn10</Authors>
     <Copyright>Copyright (c) 2026 galcn10</Copyright>
     <LangVersion>latest</LangVersion>

@@ -33,6 +33,7 @@ namespace ConsoleOverlay
         private string galleryKeys = "";
         private bool showBattery = true;
         private bool showLivePreview = true;
+        private bool rememberPosition;
         private bool powerMenuOutsideGame = false;
         private int elevatedMode = 0;
         private bool pauseGame = true;
@@ -150,6 +151,7 @@ namespace ConsoleOverlay
         public bool PowerMenuOutsideGame { get => powerMenuOutsideGame; set => SetValue(ref powerMenuOutsideGame, value); }
         public bool ShowBattery { get => showBattery; set => SetValue(ref showBattery, value); }
         public bool ShowLivePreview { get => showLivePreview; set => SetValue(ref showLivePreview, value); }
+        public bool RememberPosition { get => rememberPosition; set => SetValue(ref rememberPosition, value); }
         public bool KeepGameInFront { get => keepGameInFront; set => SetValue(ref keepGameInFront, value); }
 
         // Movimiento y sonido del menú. Se pueden apagar por separado.
@@ -282,6 +284,7 @@ namespace ConsoleOverlay
             MuteGame = o.MuteGame;
             ShowBattery = o.ShowBattery;
             ShowLivePreview = o.ShowLivePreview;
+            RememberPosition = o.RememberPosition;
             PowerMenuOutsideGame = o.PowerMenuOutsideGame;
             ElevatedMode = o.ElevatedMode;
             PauseGame = o.PauseGame;

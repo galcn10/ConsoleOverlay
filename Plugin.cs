@@ -92,6 +92,12 @@ namespace ConsoleOverlay
         private List<MenuRecent> pendingRecents;
         private string switchTargetId;
         private volatile bool switching;
+        private volatile bool leavingToGame;
+        private volatile bool endFromChord;   // el juego se está cerrando con Start + LB mientras el menú estaba abierto
+        private volatile bool extPlayerActive; // un clip se está viendo en el reproductor externo (el menú está oculto)
+        private IntPtr extPlayerHwnd = IntPtr.Zero;
+        private int lastClosedOn = -1;
+        private MenuAction rememberedMain = MenuAction.Back; // última fila usada del menú principal (opción «Recordar la última posición»)
         private readonly ManualResetEventSlim stoppedSignal = new ManualResetEventSlim(false);
         private readonly Dictionary<string, ImageSource> recentImages = new Dictionary<string, ImageSource>();
         private IntPtr playniteHwnd = IntPtr.Zero;
@@ -340,6 +346,7 @@ namespace ConsoleOverlay
         {
             gameStartedAt = DateTime.UtcNow;
             browsing = false;
+            rememberedMain = MenuAction.Back;
             Task.Run(() =>
             {
                 try
@@ -551,7 +558,10 @@ namespace ConsoleOverlay
                 }
 
                 MenuWindow w = activeMenu;
-                if (w != null && pressed)
+                // Con Start pulsado, LB forma parte del atajo de cierre: no debe cambiar de pista. Con el reproductor externo delante,
+                // el mando no mueve el menú oculto.
+                bool partOfCloseChord = settings.UseCloseChord && name == "LeftShoulder" && closeStartDown;
+                if (w != null && pressed && !extPlayerActive && !partOfCloseChord)
                 {
                     w.Dispatcher.BeginInvoke(new Action(() => w.HandleButton(name)));
                 }
@@ -561,7 +571,7 @@ namespace ConsoleOverlay
             }
         }
 
-        // Start + LB mantenidos 1,5 s: cierra el juego. Solo con el menú cerrado.
+        // Start + LB mantenidos 1,5 s: cierra el juego, con el menú cerrado o abierto (el atajo mantenido tiene prioridad).
         private const int CloseHoldMs = 1500;
         private readonly object closeLock = new object();
         private bool closeStartDown;
@@ -585,7 +595,7 @@ namespace ConsoleOverlay
                     closeLbDown = pressed;
                 }
                 bool both = closeStartDown && closeLbDown;
-                if (both && closeTimer == null && activeMenu == null)
+                if (both && closeTimer == null)
                 {
                     closeTimer = new System.Threading.Timer(_ => CloseHeld(), null, CloseHoldMs, Timeout.Infinite);
                 }
@@ -601,7 +611,7 @@ namespace ConsoleOverlay
         {
             lock (closeLock)
             {
-                if (!(closeStartDown && closeLbDown) || activeMenu != null)
+                if (!(closeStartDown && closeLbDown))
                 {
                     return;
                 }
@@ -611,8 +621,34 @@ namespace ConsoleOverlay
                     closeTimer = null;
                 }
             }
-            logger.Info("Mando: Start + LB mantenidos, cerrando el juego");
+            bool menuIsOpen = activeMenu != null;
+            logger.Info("Mando: Start + LB mantenidos, cerrando el juego" + (menuIsOpen ? " (con el menú abierto)" : ""));
             UiFeedback.Pulse(200, 0.8);
+            if (menuIsOpen)
+            {
+                if (extPlayerActive || switching)
+                {
+                    return;
+                }
+                // El bucle del menú ve la marca al volver y no reanuda el juego ni vuelve a mostrar la pantalla principal.
+                endFromChord = true;
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        EndGameWithSplash();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Error(ex, "Error al finalizar el juego (Start + LB)");
+                    }
+                    finally
+                    {
+                        endFromChord = false;
+                    }
+                });
+                return;
+            }
             Task.Run(() => OnEndHotkey());
         }
 
@@ -1273,6 +1309,18 @@ namespace ConsoleOverlay
             {
                 return;
             }
+            if (extPlayerActive)
+            {
+                // Con un clip en el reproductor externo, Guía vuelve al menú (la galería), no al juego.
+                logger.Info("Guía con el reproductor externo abierto: se cierra y se vuelve al menú.");
+                IntPtr ph = extPlayerHwnd;
+                extPlayerActive = false;
+                if (ph != IntPtr.Zero)
+                {
+                    NativeMethods.CloseWindow(ph);
+                }
+                return;
+            }
             MenuWindow openMenu = activeMenu;
             if (openMenu != null)
             {
@@ -1436,10 +1484,22 @@ namespace ConsoleOverlay
 
         private void ShowMenuLoopCore(MenuPage page, bool hasGame)
         {
-            MenuAction lastMain = MenuAction.Back; // la pantalla principal se reabre con el cursor donde estaba
+            MenuAction lastMain = settings.RememberPosition ? rememberedMain : MenuAction.Back; // la pantalla principal se reabre con el cursor donde estaba
+            if (settings.RememberPosition)
+            {
+                logger.Info("Menú: posición restaurada " + rememberedMain);
+            }
             while (true)
             {
+                if (endFromChord)
+                {
+                    return;
+                }
                 MenuAction action = page == MenuPage.Main ? ShowMainPage(lastMain) : ShowPowerPage(hasGame);
+                if (endFromChord)
+                {
+                    return;
+                }
                 if (page == MenuPage.Main)
                 {
                     lastMain = action;
@@ -1472,7 +1532,11 @@ namespace ConsoleOverlay
                         CoverIfBrowsing();
                         CloseMenuWindow(true);
                         ReturnToGame();
-                        SendCaptureKeys(settings.ClipKeys, "clip");
+                        {
+                            DateTime sinceClip = DateTime.Now.AddSeconds(-1);
+                            SendCaptureKeys(settings.ClipKeys, "clip");
+                            WatchNewClip(sinceClip);
+                        }
                         return;
 
                     case MenuAction.Record:
@@ -1500,7 +1564,15 @@ namespace ConsoleOverlay
                         }
                         HideCurtain();
                         browsing = true;
+                        logger.Info("Ir a Playnite: antes -> " + DescribePlaynite());
                         ActivatePlayniteWindow();
+                        logger.Info("Ir a Playnite: tras activar -> " + DescribePlaynite());
+                        Task.Run(() =>
+                        {
+                            Thread.Sleep(1500);
+                            logger.Info("Ir a Playnite: 1,5 s después -> " + DescribePlaynite() + " | primer plano: " +
+                                        NativeMethods.Describe(NativeMethods.GetForegroundWindow()));
+                        });
                         return;
 
                     case MenuAction.ElevatedHelp:
@@ -3026,7 +3098,7 @@ namespace ConsoleOverlay
             }
             if (KeyChord.IsValid(settings.RecordKeys))
             {
-                items.Add(new MenuEntry("record", Loc.T("Iniciar/detener grabación")) { Desc = Loc.T("Empieza o termina de grabar la partida") });
+                items.Add(new MenuEntry("record", Loc.T("Grabar vídeo")) { Desc = Loc.T("Envía el atajo de tu grabador al juego") });
                 map.Add(MenuAction.Record);
             }
             List<CaptureItem> caps = GetCaptures();
@@ -3134,6 +3206,18 @@ namespace ConsoleOverlay
             finally
             {
                 pendingRecents = null;
+            }
+            // «Recordar la última posición»: se guarda la fila en la que estaba el cursor al cerrar el menú, sea cual sea la vía
+            // (aceptar, B, Guía…), no solo la acción elegida.
+            int closedOn = lastClosedOn;
+            if (closedOn >= 0 && closedOn < map.Count)
+            {
+                MenuAction onRow = map[closedOn];
+                rememberedMain = (onRow == MenuAction.EndGame || onRow == MenuAction.Power) ? MenuAction.Back : onRow;
+                if (settings.RememberPosition)
+                {
+                    logger.Info("Menú: posición guardada " + rememberedMain);
+                }
             }
             if (recents != null && idx >= map.Count && idx - map.Count < recents.Count)
             {
@@ -3813,6 +3897,159 @@ namespace ConsoleOverlay
             }
         }
 
+        // Clip con el reproductor del sistema (cuando mpv no está o el clip no se puede reproducir en el menú): el menú y el telón
+        // se ocultan con el juego aún en pausa, se trae el reproductor al frente y, al cerrarse, vuelve el menú en la misma galería.
+        private bool OpenExternalVideo(string path)
+        {
+            MenuWindow w = activeMenu;
+            if (w == null || extPlayerActive || noFocus)
+            {
+                return false;
+            }
+            try
+            {
+                extPlayerActive = true;
+                extPlayerHwnd = IntPtr.Zero;
+                IntPtr before = NativeMethods.GetForegroundWindow();
+                w.HideForExternal();
+                HideCurtain();
+                Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                Task.Run(() => WatchExternalPlayer(w, before));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "No se pudo abrir el clip con el reproductor externo");
+                extPlayerActive = false;
+                try
+                {
+                    w.ShowAfterExternal();
+                }
+                catch
+                {
+                }
+                return false;
+            }
+        }
+
+        private bool IsGamePid(uint pid)
+        {
+            lock (gate)
+            {
+                return pausedPids.Contains((int)pid);
+            }
+        }
+
+        private void WatchExternalPlayer(MenuWindow w, IntPtr before)
+        {
+            IntPtr player = IntPtr.Zero;
+            try
+            {
+                uint own = (uint)Process.GetCurrentProcess().Id;
+                Stopwatch sw = Stopwatch.StartNew();
+                while (extPlayerActive && sw.ElapsedMilliseconds < 8000 && player == IntPtr.Zero)
+                {
+                    Thread.Sleep(150);
+                    IntPtr fg = NativeMethods.GetForegroundWindow();
+                    if (fg == IntPtr.Zero || fg == before)
+                    {
+                        continue;
+                    }
+                    uint pid;
+                    NativeMethods.GetWindowThreadProcessId(fg, out pid);
+                    if (pid != own && !IsGamePid(pid))
+                    {
+                        player = fg;
+                    }
+                }
+                if (player == IntPtr.Zero)
+                {
+                    logger.Info("Reproductor externo: no se detectó su ventana en 8 s; se vuelve al menú.");
+                }
+                else
+                {
+                    extPlayerHwnd = player;
+                    NativeMethods.BringToFront(player, false);
+                    logger.Info("Reproductor externo abierto: " + NativeMethods.Describe(player));
+                    while (extPlayerActive && NativeMethods.IsWindow(player))
+                    {
+                        Thread.Sleep(300);
+                    }
+                    logger.Info("Reproductor externo cerrado, se vuelve al menú.");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Warn(ex, "Error vigilando el reproductor externo");
+            }
+            finally
+            {
+                extPlayerActive = false;
+                extPlayerHwnd = IntPtr.Zero;
+                try
+                {
+                    if (activeMenu == w)
+                    {
+                        ShowCurtain(gameHwnd);
+                        PlayniteApi.MainView.UIDispatcher.Invoke(() => w.ShowAfterExternal());
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "No se pudo volver a mostrar el menú");
+                }
+            }
+        }
+
+        // Tras Win+Alt+G (guardar los últimos segundos): espera hasta 10 s a un archivo nuevo en las carpetas de capturas y,
+        // si no aparece, explica el motivo más probable (Game Bar sin grabación en segundo plano, o juego elevado).
+        private void WatchNewClip(DateTime since)
+        {
+            bool elevated = false;
+            try
+            {
+                if (NativeMethods.IsElevated(Process.GetCurrentProcess().Id) == 0)
+                {
+                    foreach (int gp in FindGamePids())
+                    {
+                        if (NativeMethods.IsElevated(gp) == 1)
+                        {
+                            elevated = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+            Task.Run(() =>
+            {
+                try
+                {
+                    List<string> roots = CaptureRoots();
+                    for (int i = 0; i < 10; i++)
+                    {
+                        Thread.Sleep(1000);
+                        string file = CaptureScanner.FindNewCapture(roots, since);
+                        if (file != null)
+                        {
+                            logger.Info("Clip: archivo nuevo encontrado: " + file);
+                            return;
+                        }
+                    }
+                    logger.Info("Clip: no apareció ningún archivo nuevo en 10 s" + (elevated ? " (el juego se ejecuta como administrador)" : "") + ".");
+                    Notify(elevated
+                        ? Loc.T("El juego se ejecuta como administrador: las teclas del atajo no llegan. Ejecuta Playnite como administrador o quita esa opción al juego.")
+                        : Loc.T("La Game Bar no guardó el clip. Activa «Grabar lo que ha pasado» en Configuración › Juegos › Capturas."));
+                }
+                catch (Exception ex)
+                {
+                    logger.Warn(ex, "No se pudo comprobar si se guardó el clip");
+                }
+            });
+        }
+
         // Muestra el menú visual; si no se puede crear la ventana, usa el diálogo de Playnite.
         private int Choose(string message, string caption, List<MenuEntry> items, int defaultIndex, int cancelIndex, bool showGame)
         {
@@ -3926,7 +4163,12 @@ namespace ConsoleOverlay
                             MenuWindow.NextRecents = pendingRecents;
                             MenuWindow created = new MenuWindow(title, text, items, defaultIndex, cancelIndex, cover, backdrop,
                                                                 session, total, ResolveButtonStyle(), settings.UseGuideButton, accent, themeFont);
-                            created.OnChosen = handler;
+                            created.OnChosen = chosenIndex =>
+                            {
+                                lastClosedOn = created.ClosedOnIndex;
+                                handler(chosenIndex);
+                            };
+                            created.OpenExternalVideo = OpenExternalVideo;
                             created.OpenMusicInline = OpenMusicInline;
                             created.CloseMusicInline = CloseMusicInline;
                             created.MusicVolumeChange = delta => ChangeMusicVolume(created, delta);
@@ -3938,6 +4180,39 @@ namespace ConsoleOverlay
                             created.UserBack = () =>
                             {
                                 try { if (curtain != null) { curtain.Topmost = true; } } catch { }
+                            };
+                            created.IsGameProcess = pid =>
+                            {
+                                lock (gate)
+                                {
+                                    return pausedPids.Contains(pid);
+                                }
+                            };
+                            created.LeftToGame = () =>
+                            {
+                                if (switching || leavingToGame)
+                                {
+                                    return;
+                                }
+                                leavingToGame = true;
+                                logger.Info("El usuario pasó a la ventana del juego con el menú abierto: se reanuda el juego.");
+                                Task.Run(() =>
+                                {
+                                    try
+                                    {
+                                        CoverIfBrowsing();
+                                        CloseMenuWindow(true);
+                                        ReturnToGame();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        logger.Warn(ex, "No se pudo volver al juego desde Alt+Tab");
+                                    }
+                                    finally
+                                    {
+                                        leavingToGame = false;
+                                    }
+                                });
                             };
                             created.PipFallbackLoader = () => LoadPipFallback(backdrop);
                             if (settings.ShowLivePreview && gameHwnd != IntPtr.Zero && NativeMethods.IsWindow(gameHwnd))
@@ -4980,7 +5255,28 @@ namespace ConsoleOverlay
             MutePlaynite(false, 1500);
             if (!ok)
             {
-                Notify(Loc.T("El juego está reanudado, pero no se pudo traer al frente. Prueba con Alt+Tab."));
+                // Si la ventana del juego ya no existe y su proceso está terminando (p. ej. se pidió cerrarlo estando pausado y el
+                // cierre se aplicó al reanudar), no hay nada que traer al frente: no se avisa.
+                bool closing = false;
+                if (target == IntPtr.Zero || !NativeMethods.IsWindow(target))
+                {
+                    for (int wi = 0; wi < 15 && !closing; wi++)
+                    {
+                        closing = pids.Count == 0 || pids.All(pp => !IsAlive(pp));
+                        if (!closing)
+                        {
+                            Thread.Sleep(100);
+                        }
+                    }
+                }
+                if (closing)
+                {
+                    logger.Info("El juego se está cerrando: no se avisa de que no se pudo traer al frente.");
+                }
+                else
+                {
+                    Notify(Loc.T("El juego está reanudado, pero no se pudo traer al frente. Prueba con Alt+Tab."));
+                }
             }
 
             Thread.Sleep(220);
@@ -5437,6 +5733,31 @@ namespace ConsoleOverlay
                     logger.Warn(ex, "No se pudo restaurar Playnite tras cerrar el juego");
                 }
             });
+        }
+
+        // Estado de la ventana de Playnite para el diagnóstico de «Ir a Playnite».
+        private string DescribePlaynite()
+        {
+            try
+            {
+                IntPtr h = playniteHwnd;
+                if (h == IntPtr.Zero)
+                {
+                    return "sin ventana de Playnite";
+                }
+                string state = "";
+                PlayniteApi.MainView.UIDispatcher.Invoke(() =>
+                {
+                    Window w = Application.Current != null ? Application.Current.MainWindow : null;
+                    state = w == null ? "MainWindow nulo" : "WindowState=" + w.WindowState + ", Visible=" + w.IsVisible +
+                            ", Opacity=" + w.Opacity + ", Topmost=" + w.Topmost + ", Activa=" + w.IsActive;
+                });
+                return NativeMethods.Describe(h) + " minimizada=" + NativeMethods.IsMinimized(h) + " [" + state + "]";
+            }
+            catch (Exception ex)
+            {
+                return "error: " + ex.Message;
+            }
         }
 
         private void ActivatePlayniteWindow()

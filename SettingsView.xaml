@@ -146,6 +146,10 @@
                 <TextBlock Style="{StaticResource Help}" Text="En directo si el juego no se pausa; si está pausado, el último fotograma. Algunos juegos en pantalla completa exclusiva pueden verse en negro." />
             </StackPanel>
             <StackPanel Tag="row" Margin="0,0,0,16">
+                <CheckBox Style="{StaticResource Switch}" Content="Recordar la última posición del menú" IsChecked="{Binding RememberPosition}" />
+                <TextBlock Style="{StaticResource Help}" Text="El cursor del menú empieza donde lo dejaste, no en «Volver al juego»." />
+            </StackPanel>
+            <StackPanel Tag="row" Margin="0,0,0,16">
                 <CheckBox Style="{StaticResource Switch}" Content="Animaciones del menú" IsChecked="{Binding AnimationsEnabled}" />
                 <TextBlock Style="{StaticResource Help}" Text="Fundidos, filas que entran en cadena y brillo al cambiar de fila. Desactívalas si el equipo va justo." />
             </StackPanel>
@@ -218,7 +222,7 @@
             </StackPanel>
             <StackPanel Tag="row" Margin="0,0,0,16">
                 <CheckBox Style="{StaticResource Switch}" Content="Cerrar el juego: Start + LB (mantener 1,5 s)" IsChecked="{Binding UseCloseChord}" />
-                <TextBlock Style="{StaticResource Help}" Text="Cierra el juego directamente, sin confirmación. Vibra al cerrar. Solo funciona con el menú cerrado." />
+                <TextBlock Style="{StaticResource Help}" Text="Cierra el juego directamente, sin confirmación, con el menú abierto o cerrado. Vibra al cerrar." />
             </StackPanel>
             <Grid Tag="row" Margin="0,0,0,16">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
