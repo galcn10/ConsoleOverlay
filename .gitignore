@@ -4,3 +4,6 @@ obj/
 *.user
 *.pext
 *_backup*
+
+out/
+empaquetar/
